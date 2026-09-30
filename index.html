@@ -333,17 +333,27 @@ summary{cursor:pointer;color:#3c6b53}
       </section>
 
       <section class="panel">
-        <div class="row"><h2>断食窗口（16:8 等）</h2>
-          <label style="margin:0;display:flex;align-items:center;gap:6px;font-size:13px">
-            <input id="fastOn" type="checkbox" style="width:auto;height:auto;margin:0"> 启用
-          </label>
-        </div>
+        <div class="row"><h2>断食计时</h2><span class="hint" id="fastPlanName"></span></div>
+        <div class="groupFilter" id="fastProtocols"></div>
         <div class="editLine">
+          <label>目标断食小时数<input id="fastHours" type="number" min="1" max="72" step="1"></label>
           <label>开始进食<input id="fastStart" type="time"></label>
           <label>结束进食<input id="fastEnd" type="time"></label>
+          <label style="flex:0 0 auto;display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px">
+            <input id="fastOn" type="checkbox" style="width:auto;height:auto;margin:0"> 在提示条显示进食窗口
+          </label>
         </div>
-        <div id="fastStatus" class="result"></div>
-        <p class="hint">窗口按你当地的当前时间实时计算。断食不是必须的：效果主要来自总摄入下降，选一个你能长期坚持的方式即可。</p>
+        <div id="fastTimer" class="result"></div>
+        <div class="controls" style="margin-top:10px">
+          <button class="primary" id="fastBegin">开始断食</button>
+          <button id="fastEndBtn">结束断食</button>
+          <button class="ghost" id="fastCancel">放弃本次</button>
+        </div>
+        <div id="fastStats" class="stats4" style="grid-template-columns:repeat(3,1fr)"></div>
+        <div class="row" style="margin-top:14px"><h2>断食记录</h2><span class="hint">最近 20 次</span></div>
+        <div id="fastHistory"></div>
+        <p class="hint">计时只是记录工具：断食不是必须的，效果主要来自总摄入下降，选一个你能长期坚持的方式。
+        长时间断食（≥24 小时）注意电解质与头晕，糖尿病用药者、孕哺期请先咨询医生。</p>
       </section>
     </div>
 
@@ -458,6 +468,20 @@ summary{cursor:pointer;color:#3c6b53}
       <p class="hint" id="storageInfo"></p>
     </section>
     <section class="panel">
+      <div class="row"><h2>食物数据来源与署名</h2></div>
+      <p class="hint">
+      <b>中国食物成分表</b>（1666 条，每 100 克）：<a href="https://github.com/Sanotsu/china-food-composition-data" target="_blank" rel="noreferrer">Sanotsu/china-food-composition-data</a>
+      ——《中国食物成分表标准版（第 6 版）》"能量和食物一般营养成分"部分。<br>
+      <b>包装食品</b>（内置 <span id="packOffCount">0</span> 条，每 100 克，可按条码检索）：数据来自
+      <a href="https://world.openfoodfacts.org" target="_blank" rel="noreferrer">Open Food Facts</a>（openfoodfacts.org），
+      <b>数据库许可 ODbL 1.0，内容许可 DbCL 1.0</b>；条款见 <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noreferrer">ODbL 1.0</a>。
+      你在应用里扫码查到的产品也会缓存到本机，同样适用上述许可。<br>
+      <b>中国品牌食品</b>（内置 <span id="packBrandCount">0</span> 条，多为"每份"，如奶茶/咖啡/便利店食品）：数据来自
+      <a href="https://github.com/H1an1/health-coach" target="_blank" rel="noreferrer">H1an1/health-coach</a>（MIT License）。<br>
+      条码查询会优先使用本地数据（离线可用）；本地没有时才联网查询 Open Food Facts，查询结果会缓存到本机。
+      </p>
+    </section>
+    <section class="panel">
       <div class="row"><h2>内置食物成分库</h2></div>
       <p class="hint" id="foodDbInfo"></p>
       <p class="hint">数据来源：<a href="https://github.com/Sanotsu/china-food-composition-data" target="_blank" rel="noreferrer">Sanotsu/china-food-composition-data</a>（《中国食物成分表标准版（第 6 版）》“能量和食物一般营养成分”，共 1677 条，本项目取其中 1666 条可用记录），营养值为每 100 克可食部。<br>
@@ -481,12 +505,18 @@ summary{cursor:pointer;color:#3c6b53}
 <dialog id="foodDlg">
   <h2>从食物库添加</h2>
   <label>搜索食物<input id="fq" placeholder="如：米饭、鸡蛋、牛奶、鸡胸肉" autocomplete="off"></label>
+  <div class="editLine">
+    <label>包装食品条码<input id="fcode" inputmode="numeric" placeholder="如 6923644266066" autocomplete="off"></label>
+    <button type="button" class="primary" id="fcodeGo">查条码</button>
+  </div>
+  <p class="hint" id="fcodeHint">条码优先查本地内置数据（离线可用），没有则联网查 Open Food Facts 并缓存到本机。<br>
+  条码数据来源：<a href="https://world.openfoodfacts.org" target="_blank" rel="noreferrer">Open Food Facts</a>（数据库许可 ODbL 1.0，内容许可 DbCL 1.0）。</p>
   <label>分类<select id="fcat"></select></label>
   <div id="fres" class="list"></div>
   <div id="fsel" class="hide">
     <div class="selName" id="fselName"></div>
     <div class="editLine">
-      <label>食用量（克）<input id="fgrams" type="number" min="1" step="1" value="100"></label>
+      <label id="famountLabel">食用量（克）<input id="fgrams" type="number" min="0.1" step="1" value="100"></label>
       <label>餐次<select id="fmeal"></select></label>
       <label>时间<input id="ftime" type="time"></label>
     </div>
@@ -530,6 +560,7 @@ summary{cursor:pointer;color:#3c6b53}
 
 
 <script src="food-db.js"></script>
+<script src="food-extra.js"></script>
 <script src="diet-library.js"></script>
 <script src="plans.js"></script>
 <script src="app.js"></script>

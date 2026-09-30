@@ -186,6 +186,73 @@ var HD_PLANS = (function () {
     }
   ];
 
+  /* ---------------- 断食方案（参考 SoloForge 的方案划分） ---------------- */
+  var FAST_PROTOCOLS = [
+    { id: 'if168', name: '16:8', hours: 16, eat: 8, desc: '最常见的限时进食：断食 16 小时、进食 8 小时', level: '入门' },
+    { id: 'if186', name: '18:6', hours: 18, eat: 6, desc: '比 16:8 再长 2 小时，适合已经适应的人', level: '进阶' },
+    { id: 'if204', name: '20:4', hours: 20, eat: 4, desc: '进食窗口只有 4 小时，要特别留意蛋白质与总热量', level: '进阶' },
+    { id: 'omad', name: 'OMAD（23:1）', hours: 23, eat: 1, desc: '一日一餐，很难吃够营养，不建议长期', level: '高阶' },
+    { id: 'if36', name: '36 小时', hours: 36, eat: 12, desc: '较长断食，从短时长过渡，注意电解质与头晕', level: '高阶' },
+    { id: 'adf', name: '隔日断食', hours: 24, eat: 24, desc: '断食日与进食日交替，平均形成缺口', level: '进阶' },
+    { id: 'if52', name: '5:2 轻断食', hours: 0, eat: 24, desc: '每周 2 天低热量（约 500–600 千卡），不按小时计', level: '入门' },
+    { id: 'custom', name: '自定义', hours: 16, eat: 8, desc: '自己定目标小时数', level: '自定义' }
+  ];
+
+  /** 断食进度：给定开始时间与目标小时数，返回已进行/剩余等信息 */
+  function fastingProgress(startISO, targetHours, now) {
+    if (!startISO) return null;
+    now = now || new Date();
+    var start = new Date(startISO);
+    if (isNaN(start.getTime())) return null;
+    var elapsedMin = Math.max(0, Math.floor((now - start) / 60000));
+    var hours = num(targetHours) > 0 ? num(targetHours) : 16;
+    var targetMin = Math.round(hours * 60);
+    var pct = Math.min(100, elapsedMin / targetMin * 100);
+    var remainMin = Math.max(0, targetMin - elapsedMin);
+    function hm(m) { return Math.floor(m / 60) + ' 小时 ' + (m % 60) + ' 分钟'; }
+    return {
+      start: start, elapsedMin: elapsedMin, elapsedText: hm(elapsedMin),
+      elapsedHours: Math.round(elapsedMin / 6) / 10,
+      targetHours: hours, targetMin: targetMin,
+      remainMin: remainMin, remainText: hm(remainMin),
+      pct: pct, reached: elapsedMin >= targetMin,
+      endAt: new Date(start.getTime() + targetMin * 60000)
+    };
+  }
+
+  /** 某天的断食总时长（小时，含跨天：按结束时间落在哪一天算） */
+  function fastingHoursOn(history, day) {
+    var total = 0;
+    (history || []).forEach(function (h) {
+      if (!h || !h.end) return;
+      var d = String(h.end).slice(0, 10);
+      if (d === day) total += num(h.hours);
+    });
+    return Math.round(total * 10) / 10;
+  }
+
+  /** 最近 7 天断食统计 */
+  function fastingStats(history, endDate) {
+    var end = new Date(endDate + 'T12:00:00');
+    var from = new Date(end.getTime());
+    from.setDate(from.getDate() - 6);
+    var out = { count: 0, avgHours: 0, longest: 0, last: null, days: {} };
+    var sum = 0;
+    (history || []).forEach(function (h) {
+      if (!h || !h.end) return;
+      var d = String(h.end).slice(0, 10);
+      var dd = new Date(d + 'T12:00:00');
+      if (dd < from || dd > end) return;
+      out.count++;
+      sum += num(h.hours);
+      out.longest = Math.max(out.longest, num(h.hours));
+      out.days[d] = (out.days[d] || 0) + num(h.hours);
+      if (!out.last || d > out.last.end.slice(0, 10)) out.last = h;
+    });
+    out.avgHours = out.count ? Math.round(sum / out.count * 10) / 10 : 0;
+    return out;
+  }
+
   /* ---------------- 体重趋势 ---------------- */
   /** 取某天最后一条体重记录（同一天多条以 created 最大的为准） */
   function weightOn(entries, day) {
@@ -349,14 +416,15 @@ var HD_PLANS = (function () {
   return {
     KCAL_PER_KG_FAT: KCAL_PER_KG_FAT, SAFE_LOSS_MIN: SAFE_LOSS_MIN, SAFE_LOSS_MAX: SAFE_LOSS_MAX,
     MAX_ADJUST: MAX_ADJUST, PLATEAU_WEEKS: PLATEAU_WEEKS, MIN_COMPLETENESS: MIN_COMPLETENESS,
-    FORMULAS: FORMULAS, ACTIVITY: ACTIVITY, METS: METS,
+    FORMULAS: FORMULAS, ACTIVITY: ACTIVITY, METS: METS, FAST_PROTOCOLS: FAST_PROTOCOLS,
     DIET_PLANS: DIET_PLANS, EXERCISE_PLANS: EXERCISE_PLANS,
     bmr: bmr, tdee: tdee, deficitFor: deficitFor, weeklyLossFor: weeklyLossFor, budget: budget,
     bmi: bmi, bmiClass: bmiClass, whtr: whtr, navyBodyFat: navyBodyFat,
     macroFromKcal: macroFromKcal, proteinTarget: proteinTarget,
     exerciseKcal: exerciseKcal, stepsKcal: stepsKcal,
     weightOn: weightOn, weightTrend: weightTrend, trendDelta: trendDelta, sumIntake: sumIntake,
-    review: review, milestones: milestones, fastingState: fastingState, round: round
+    review: review, milestones: milestones, fastingState: fastingState, round: round,
+    fastingProgress: fastingProgress, fastingStats: fastingStats, fastingHoursOn: fastingHoursOn
   };
 })();
 if (typeof module !== 'undefined' && module.exports) { module.exports = HD_PLANS; }

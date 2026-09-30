@@ -12,7 +12,10 @@
   var DEFAULT_PROFILE = { sex: 'male', formula: 'mifflin', age: 30, height: 170, weight: 65, bodyFat: '', activity: 1.375, startWeight: '', targetWeight: '', kgPerWeek: 0.5, waist: '', hip: '', neck: '', proteinPerKg: 0 };
   var DEFAULT_PLAN = {
     dietId: '', exerciseId: '',
-    fasting: { enabled: false, start: '12:00', end: '20:00' },
+    fasting: {
+      enabled: false, start: '12:00', end: '20:00',
+      protocolId: 'if168', hours: 16, session: null, history: []
+    },
     meals: { breakfast: 25, lunch: 35, dinner: 30, snack: 10 },
     floorEnabled: true
   };
@@ -35,17 +38,45 @@
 
   /* ===================== 食物库 ===================== */
   var FOODS = [];
+  var BY_CODE = {};                       /* 条码 → 食物项 */
+  /* 中国食物成分表（每 100 克） */
   (function () {
     for (var cat in FOOD_DB) {
       if (!Object.prototype.hasOwnProperty.call(FOOD_DB, cat)) continue;
       var arr = FOOD_DB[cat];
       for (var i = 0; i < arr.length; i++) {
         var r = arr[i];
-        FOODS.push({ name: r[0], kcal: n(r[1]), p: n(r[2]), f: n(r[3]), c: n(r[4]), fb: n(r[5]), cat: cat });
+        FOODS.push({ name: r[0], kcal: n(r[1]), p: n(r[2]), f: n(r[3]), c: n(r[4]), fb: n(r[5]), cat: cat, unit: '100g', src: 'cfct' });
       }
     }
   })();
+  /* 包装食品（Open Food Facts，每 100g/ml，可条码检索） */
+  var PACK = (typeof HD_PACKAGED !== 'undefined') ? HD_PACKAGED : { off: [], brand: [] };
+  (function () {
+    (PACK.off || []).forEach(function (r) {
+      var f = {
+        code: r[0], name: r[1], brand: r[2] || '', kcal: n(r[3]), p: n(r[4]), f: n(r[5]), c: n(r[6]),
+        fb: n(r[7]), serving: r[8] || '', cat: '包装食品（Open Food Facts）', unit: '100g', src: 'off'
+      };
+      FOODS.push(f);
+      if (f.code) BY_CODE[f.code] = f;
+    });
+    /* 品牌食品（health-coach，多为「每份」） */
+    (PACK.brand || []).forEach(function (b) {
+      FOODS.push({
+        name: b.name, brand: b.brand || '', kcal: n(b.k), p: n(b.p), f: n(b.f), c: n(b.c), fb: 0,
+        cat: b.cat, unit: b.unit === '100ml' ? '100ml' : 'serving', serving: b.serving || '',
+        note: b.note || '', kcalOnly: !!b.kcalOnly, wholeKcal: n(b.sk), src: 'brand'
+      });
+    });
+  })();
   var CATS = Object.keys(FOOD_DB);
+  (function () {
+    var extra = [];
+    FOODS.forEach(function (f) { if (f.src !== 'cfct' && extra.indexOf(f.cat) < 0) extra.push(f.cat); });
+    extra.sort(function (a, b) { return (b === '包装食品（Open Food Facts）') - (a === '包装食品（Open Food Facts）') || a.localeCompare(b, 'zh'); });
+    CATS = CATS.concat(extra);
+  })();
   var COMMON = ['米饭', '馒头', '面条', '饺子', '包子', '粥', '鸡蛋', '牛奶', '酸奶', '豆浆', '豆腐', '鸡胸肉', '鸡腿', '猪肉', '牛肉', '羊肉', '草鱼', '带鱼', '虾', '白菜', '菠菜', '西兰花', '番茄', '黄瓜', '土豆', '红薯', '玉米', '燕麦', '苹果', '香蕉', '橙子', '西瓜', '葡萄', '花生', '核桃', '海带', '木耳', '香菇'];
   var COMMON_LIST = (function () {
     var out = [], seen = {};
@@ -58,21 +89,35 @@
     }
     return out.slice(0, 90);
   })();
+  FOODS.forEach(function (f, i) { f.idx = i; });
+  /** 把用户之前扫码缓存的包装食品加回索引（离线也能再用） */
+  function restoreCustomFoods() {
+    var cf = (db && db.customFoods) || {};
+    Object.keys(cf).forEach(function (code) {
+      if (BY_CODE[code]) return;
+      var item = cf[code];
+      item.idx = FOODS.length;
+      FOODS.push(item);
+      BY_CODE[code] = item;
+      if (CATS.indexOf(item.cat) < 0) CATS.push(item.cat);
+    });
+  }
   function searchFood(q, cat, limit) {
     q = String(q || '').trim();
+    var ql = q.toLowerCase();
     var out = [];
     for (var i = 0; i < FOODS.length; i++) {
       var f = FOODS[i];
       if (cat && cat !== '*' && f.cat !== cat) continue;
       if (q) {
+        if (f.code && f.code === q) { out.push([-1, 0, f]); continue; }      /* 条码精确命中 */
         var idx = f.name.indexOf(q);
-        if (idx < 0) continue;
-        out.push([idx, f.name.length, f]);
-      } else if (!cat || cat === '*') {
-        continue;
-      } else {
-        out.push([0, f.name.length, f]);
-      }
+        if (idx === 0) out.push([0, f.name.length, f]);                      /* 名称以关键词开头 */
+        else if (idx > 0) out.push([1, idx, f]);
+        else if (f.brand && f.brand.toLowerCase().indexOf(ql) >= 0) out.push([2, f.name.length, f]);
+        else continue;
+      } else if (!cat || cat === '*') continue;
+      else out.push([0, f.name.length, f]);
     }
     out.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
     return out.slice(0, limit || 150).map(function (x) { return x[2]; });
@@ -81,17 +126,39 @@
   /* ===================== 数据层 ===================== */
   var db = null;
   function normalize(raw) {
-    var out = { goals: clone(DEFAULT_GOALS), profile: clone(DEFAULT_PROFILE), plan: clone(DEFAULT_PLAN), review: { history: [] }, entries: [], savedAt: n(raw && raw.savedAt) };
+    var out = { goals: clone(DEFAULT_GOALS), profile: clone(DEFAULT_PROFILE), plan: clone(DEFAULT_PLAN), review: { history: [] }, entries: [], customFoods: {}, savedAt: n(raw && raw.savedAt) };
+    if (raw && raw.customFoods && typeof raw.customFoods === 'object') {
+      Object.keys(raw.customFoods).forEach(function (code) {
+        var f = raw.customFoods[code];
+        if (f && f.name && n(f.kcal) >= 0) out.customFoods[String(code)] = f;
+      });
+    }
     if (raw && raw.plan) {
       out.plan.dietId = raw.plan.dietId || '';
       out.plan.exerciseId = raw.plan.exerciseId || '';
       out.plan.floorEnabled = raw.plan.floorEnabled !== false;
       if (raw.plan.fasting) {
+        var rf = raw.plan.fasting;
         out.plan.fasting = {
-          enabled: !!raw.plan.fasting.enabled,
-          start: /^\d{2}:\d{2}$/.test(raw.plan.fasting.start) ? raw.plan.fasting.start : DEFAULT_PLAN.fasting.start,
-          end: /^\d{2}:\d{2}$/.test(raw.plan.fasting.end) ? raw.plan.fasting.end : DEFAULT_PLAN.fasting.end
+          enabled: !!rf.enabled,
+          start: /^\d{2}:\d{2}$/.test(rf.start) ? rf.start : DEFAULT_PLAN.fasting.start,
+          end: /^\d{2}:\d{2}$/.test(rf.end) ? rf.end : DEFAULT_PLAN.fasting.end,
+          protocolId: rf.protocolId || 'if168',
+          hours: n(rf.hours) > 0 ? n(rf.hours) : 16,
+          session: (rf.session && rf.session.start) ? { start: String(rf.session.start), protocolId: rf.session.protocolId || 'if168' } : null,
+          history: []
         };
+        if (Array.isArray(rf.history)) {
+          rf.history.forEach(function (h) {
+            if (h && h.start && h.end) {
+              out.plan.fasting.history.push({
+                start: String(h.start), end: String(h.end),
+                hours: n(h.hours), protocolId: h.protocolId || '', note: h.note || ''
+              });
+            }
+          });
+          out.plan.fasting.history = out.plan.fasting.history.slice(-60);
+        }
       }
       if (raw.plan.meals) {
         ['breakfast', 'lunch', 'dinner', 'snack'].forEach(function (k) {
@@ -125,6 +192,9 @@
       if (e.type === 'food') {
         item.meal = ['breakfast', 'lunch', 'dinner', 'snack'].indexOf(e.meal) >= 0 ? e.meal : 'lunch';
         item.grams = n(e.grams) > 0 ? n(e.grams) : null;
+        item.servings = n(e.servings) > 0 ? n(e.servings) : null;
+        item.unit = e.unit || '100g';
+        item.servingLabel = e.servingLabel || '';
         item.kcal = n(e.kcal); item.c = n(e.c); item.p = n(e.p); item.f = n(e.f);
         if (!(item.kcal > 0) && !(item.c + item.p + item.f > 0)) continue;
       } else if (e.type === 'adjust') {
@@ -441,7 +511,8 @@
   }
   function foodRow(x) {
     var detail = [];
-    if (x.grams) detail.push(r0(x.grams) + ' 克');
+    if (x.servings) detail.push(r1(x.servings) + (x.servingLabel || ' 份'));
+    else if (x.grams) detail.push(r0(x.grams) + ' 克');
     detail.push(r0(x.kcal) + ' 千卡');
     if (x.c || x.p || x.f) detail.push('碳 ' + r1(x.c) + ' / 蛋 ' + r1(x.p) + ' / 脂 ' + r1(x.f));
     if (x.time) detail.push(x.time);
@@ -737,10 +808,8 @@
     html += '<span class="tbPill">' + MEALS.map(function (m) {
       return mealName(m[0]) + ' ' + r0(mu[m[0]]) + '/' + mt[m[0]];
     }).join(' · ') + '</span>';
-    if (f) {
-      html += '<span class="tbPill ' + (f.outside ? 'warn' : (f.eating ? 'good' : '')) + '" id="tbFast">' + (f.eating ? '进食中' : '断食中') + ' · ' + f.start + '–' + f.end + ' · ' + f.text +
-        (f.outside ? (' · 有 ' + f.outside + ' 条记录在窗口外') : '') + '</span>';
-    }
+    /* 断食药丸：内容由 tickFasting 实时刷新（有无计时/窗口都在） */
+    html += '<span class="tbPill' + (db.plan.fasting.session ? '' : ' hide') + '" id="tbFast"></span>';
     html += '<span class="tbPill">' + (plan ? ('方案：' + plan.name) : '还没有选择饮食方案') + '</span>';
     var due = reviewDue();
     if (due.due) {
@@ -824,17 +893,8 @@
         '<div class="hint">' + r0(used) + ' / ' + target + ' 千卡</div></div>';
     }).join('');
 
-    /* 断食 */
-    $('#fastOn').checked = !!db.plan.fasting.enabled;
-    setVal('#fastStart', db.plan.fasting.start);
-    setVal('#fastEnd', db.plan.fasting.end);
-    var f = fastingInfo();
-    if (!f) $('#fastStatus').innerHTML = '未启用断食窗口。启用后这里会实时显示"进食中/断食中"和剩余时间。';
-    else {
-      $('#fastStatus').innerHTML = '<b>' + (f.eating ? '进食窗口开放中' : '断食中') + '</b>　' + f.text +
-        '<div class="hint" style="margin-top:6px">今日 ' + f.start + '–' + f.end + ' 之外的食物记录：' + f.outside + ' 条' +
-        (f.outside ? '（窗口外进食不会让记录失效，只是提醒你留意）' : '') + '</div>';
-    }
+    /* 断食计时 */
+    renderFasting();
 
     /* 运动 */
     var ep = exercisePlan();
@@ -920,8 +980,13 @@
     msg += '\n三大营养素比例已设为 碳水 ' + macro.c + '% / 蛋白质 ' + macro.p + '% / 脂肪 ' + macro.f + '%' +
       (w > 0 ? '（约 碳 ' + HD_PLANS.macroFromKcal(kcal, macro).c + ' g、蛋 ' + HD_PLANS.macroFromKcal(kcal, macro).p + ' g、脂 ' + HD_PLANS.macroFromKcal(kcal, macro).f + ' g；蛋白质约 ' + p.proteinPerKg + ' g/kg 体重）' : '') + '。';
     if (p.fasting) {
-      db.plan.fasting = { enabled: true, start: p.fasting.start, end: p.fasting.end };
-      msg += '\n断食窗口已设为 ' + p.fasting.start + '–' + p.fasting.end + '。';
+      /* 只更新窗口，保留计时相关字段（方案选择、目标小时数、进行中的计时、历史） */
+      db.plan.fasting.enabled = true;
+      db.plan.fasting.start = p.fasting.start;
+      db.plan.fasting.end = p.fasting.end;
+      db.plan.fasting.history = db.plan.fasting.history || [];
+      if (p.id === 'if168' || p.id === 'ketoif') { db.plan.fasting.protocolId = 'if168'; db.plan.fasting.hours = 16; }
+      msg += '\n断食窗口已设为 ' + p.fasting.start + '–' + p.fasting.end + '（到「计划 → 断食计时」里可以点「开始断食」开始计时）。';
     }
     commit();
     alert(msg);
@@ -1017,6 +1082,109 @@
         '<td>' + esc((h.days ? (h.days + ' 天平均摄入 ' + r0(h.avgIntake) + ' 千卡，趋势 ' + (h.deltaKg > 0 ? '+' : '') + h.deltaKg + ' kg') : '') +
           (h.plateau ? '（判定平台期）' : '') + (h.note ? '　' + h.note : '')) + '</td></tr>';
     }).join('') : '<tr><td colspan="6" class="empty">还没有调整记录。每 1–2 周来一次复盘即可。</td></tr>';
+  }
+
+  /* ---------- 断食计时 ---------- */
+  function fastProtocol() {
+    var fid = db.plan.fasting.protocolId;
+    return HD_PLANS.FAST_PROTOCOLS.filter(function (p) { return p.id === fid; })[0] || HD_PLANS.FAST_PROTOCOLS[0];
+  }
+  function startFasting() {
+    if (db.plan.fasting.session) { alert('已经在计时中了。'); return; }
+    var p = fastProtocol();
+    db.plan.fasting.session = { start: new Date().toISOString(), protocolId: p.id };
+    commit();
+  }
+  function endFasting(cancel) {
+    var s = db.plan.fasting.session;
+    if (!s) { alert('现在没有进行中的断食。'); return; }
+    var end = new Date();
+    var hours = Math.round((end - new Date(s.start)) / 36000) / 100;   // 保留两位
+    if (!cancel) {
+      var h = Math.round(hours * 10) / 10;
+      if (h >= 0.2) {
+        db.plan.fasting.history.push({
+          start: s.start, end: end.toISOString(), hours: h,
+          protocolId: s.protocolId, note: ''
+        });
+        if (db.plan.fasting.history.length > 60) db.plan.fasting.history = db.plan.fasting.history.slice(-60);
+      }
+    }
+    db.plan.fasting.session = null;
+    commit();
+    if (!cancel) alert('本次断食 ' + (Math.round(hours * 10) / 10) + ' 小时，已记入断食记录。');
+  }
+  function renderFasting() {
+    var f = db.plan.fasting;
+    if (!f) { db.plan.fasting = f = clone(DEFAULT_PLAN.fasting); }
+    if (!Array.isArray(f.history)) f.history = [];
+    if (!f.protocolId) f.protocolId = 'if168';
+    if (!(n(f.hours) > 0)) f.hours = 16;
+    if (!f.start) f.start = DEFAULT_PLAN.fasting.start;
+    if (!f.end) f.end = DEFAULT_PLAN.fasting.end;
+    $('#fastProtocols').innerHTML = HD_PLANS.FAST_PROTOCOLS.map(function (p) {
+      var on = f.protocolId === p.id;
+      return '<button class="' + (on ? 'on' : '') + '" data-fproto="' + p.id + '" title="' + esc(p.desc) + '">' +
+        esc(p.name) + '<span class="hint"> ' + esc(p.level) + '</span></button>';
+    }).join('');
+    $('#fastPlanName').textContent = fastProtocol().desc;
+    setVal('#fastHours', f.hours);
+    $('#fastOn').checked = !!f.enabled;
+    setVal('#fastStart', f.start);
+    setVal('#fastEnd', f.end);
+
+    var st = HD_PLANS.fastingStats(f.history, date);
+    $('#fastStats').innerHTML = statBox('最近 7 天', st.count + ' <span>次</span>', '平均 ' + st.avgHours + ' 小时') +
+      statBox('最长一次', st.longest ? st.longest + ' <span>小时</span>' : '--', '近 7 天记录') +
+      statBox('累计记录', f.history.length + ' <span>次</span>', '最多保留 60 次');
+
+    var hist = f.history.slice().reverse().slice(0, 20);
+    $('#fastHistory').innerHTML = hist.length ? hist.map(function (h, i) {
+      var d = String(h.end).slice(0, 10);
+      var pn = (HD_PLANS.FAST_PROTOCOLS.filter(function (p) { return p.id === h.protocolId; })[0] || {}).name || '自定义';
+      return '<div class="item"><div><b>' + r1(h.hours) + ' 小时</b><small>' + d + ' · ' + esc(pn) +
+        ' · ' + String(h.start).slice(11, 16) + ' → ' + String(h.end).slice(11, 16) + '</small></div>' +
+        '<div class="acts"><button class="del" data-fdel="' + (f.history.length - 1 - i) + '" title="删除">×</button></div></div>';
+    }).join('') : '<div class="empty">还没有断食记录。点「开始断食」，到开饭时点「结束断食」就会记下来。</div>';
+    tickFasting();
+  }
+  function fastTimerHtml() {
+    var f = db.plan.fasting;
+    if (!f.session) {
+      var win = f.enabled ? HD_PLANS.fastingState(f.start, f.end, new Date()) : null;
+      return '<div><b>未在计时</b></div><div class="hint" style="margin-top:6px">' +
+        '选择上面的方案，点「开始断食」开始计时；到进食时间点「结束断食」，会自动记入断食记录。' +
+        (win ? '<br>当前进食窗口 ' + f.start + '–' + f.end + '：' + win.text : '') + '</div>';
+    }
+    var pr = HD_PLANS.fastingProgress(f.session.start, f.hours, new Date());
+    if (!pr) return '';
+    var pn = (HD_PLANS.FAST_PROTOCOLS.filter(function (p) { return p.id === f.session.protocolId; })[0] || {}).name || '自定义';
+    var bar = '<div class="bar" style="margin-top:10px"><i style="width:' + pr.pct.toFixed(1) + '%;background:' +
+      (pr.reached ? '#2f9e63' : '#3f8fd0') + '"></i></div>';
+    return '<div><b>' + (pr.reached ? '✅ 已达成目标 ' + pr.targetHours + ' 小时' : '断食中 ' + pr.elapsedText) + '</b>' +
+      '　<span class="hint">已进行 ' + pr.elapsedText + ' / 目标 ' + pr.targetHours + ' 小时' + (pr.reached ? '' : ('，还差 ' + pr.remainText)) + '</span></div>' +
+      bar +
+      '<div class="hint" style="margin-top:6px">方案 ' + esc(pn) + ' · 开始于 ' + String(f.session.start).slice(0, 16).replace('T', ' ') +
+      ' · 预计 ' + pr.endAt.toTimeString().slice(0, 5) + ' 达成目标</div>';
+  }
+  function tickFasting() {
+    var box = $('#fastTimer');
+    if (box) box.innerHTML = fastTimerHtml();
+    var tb = $('#tbFast');
+    if (!tb) return;
+    var f = db.plan.fasting;
+    if (f.session) {
+      var pr = HD_PLANS.fastingProgress(f.session.start, f.hours, new Date());
+      tb.className = 'tbPill ' + (pr && pr.reached ? 'good' : 'warn');
+      tb.innerHTML = '断食中 ' + (pr ? pr.elapsedText : '') + ' / ' + f.hours + ' 小时' + (pr && !pr.reached ? '（还差 ' + pr.remainText + '）' : '（已达标）');
+      return;
+    }
+    if (!f.enabled) { tb.className = 'tbPill hide'; tb.innerHTML = ''; return; }
+    var win = HD_PLANS.fastingState(f.start, f.end, new Date());
+    var outside = outsideWindow(date, f.start, f.end);
+    tb.className = 'tbPill ' + (outside ? 'warn' : (win.eating ? 'good' : ''));
+    tb.innerHTML = (win.eating ? '进食中' : '断食中') + ' · ' + f.start + '–' + f.end + ' · ' + win.text +
+      (outside ? (' · 有 ' + outside + ' 条记录在窗口外') : '');
   }
 
   /* ===================== 基础代谢 ===================== */
@@ -1228,6 +1396,37 @@
     $('#fastOn').onchange = function () { db.plan.fasting.enabled = this.checked; commit(); };
     $('#fastStart').onchange = function () { db.plan.fasting.start = this.value || DEFAULT_PLAN.fasting.start; commit(); };
     $('#fastEnd').onchange = function () { db.plan.fasting.end = this.value || DEFAULT_PLAN.fasting.end; commit(); };
+    $('#fastHours').onchange = function () { db.plan.fasting.hours = Math.max(1, Math.min(72, n(this.value) || 16)); commit(); };
+    $('#fastProtocols').onclick = function (e) {
+      var b = e.target.closest('[data-fproto]');
+      if (!b) return;
+      var p = HD_PLANS.FAST_PROTOCOLS.filter(function (x) { return x.id === b.dataset.fproto; })[0];
+      if (!p) return;
+      db.plan.fasting.protocolId = p.id;
+      if (p.id !== 'custom' && p.hours > 0) db.plan.fasting.hours = p.hours;
+      if (p.eat > 0 && p.eat < 24 && p.hours > 0) {
+        /* 按方案推算一个默认进食窗口：断食结束时间 = 现在 + 断食时长（只在没有自定义窗口时提示） */
+        db.plan.fasting.enabled = true;
+      }
+      commit();
+    };
+    $('#fastBegin').onclick = startFasting;
+    $('#fastEndBtn').onclick = function () {
+      if (!db.plan.fasting.session) { alert('现在没有进行中的断食。'); return; }
+      endFasting(false);
+    };
+    $('#fastCancel').onclick = function () {
+      if (!db.plan.fasting.session) { alert('现在没有进行中的断食。'); return; }
+      if (confirm('放弃本次断食？不会记入断食记录。')) endFasting(true);
+    };
+    $('#fastHistory').onclick = function (e) {
+      var b = e.target.closest('[data-fdel]');
+      if (!b) return;
+      var i = n(b.dataset.fdel);
+      if (!confirm('删除这条断食记录？')) return;
+      db.plan.fasting.history.splice(i, 1);
+      commit();
+    };
 
     /* 复盘页 */
     $('#rvActions').onclick = function (e) {
@@ -1312,6 +1511,8 @@
     /* 食物库弹窗 */
     $('#fq').oninput = function () { renderFoodResults(); };
     $('#fcat').onchange = function () { renderFoodResults(); };
+    $('#fcodeGo').onclick = lookupBarcode;
+    $('#fcode').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); lookupBarcode(); } };
     $('#fgrams').oninput = function () { fillFromGrams(); };
     $('#fCancel').onclick = function () { $('#foodDlg').close(); };
     $('#fSave').onclick = saveFoodFromDb;
@@ -1335,46 +1536,132 @@
     $('#foodDlg').showModal();
     setTimeout(function () { $('#fq').focus(); }, 30);
   }
+  function foodUnitText(f) {
+    if (f.unit === 'serving') return f.serving ? ('每份（' + f.serving + '）') : '每份';
+    if (f.unit === '100ml') return '每 100 毫升';
+    return '每 100 克';
+  }
+  function foodAmount(f) {
+    if (f.unit === 'serving') return 1;
+    return 100;
+  }
   function renderFoodResults() {
     var q = $('#fq').value, cat = $('#fcat').value;
     var list = q ? searchFood(q, cat, 150) : (cat !== '*' ? searchFood('', cat, 150) : COMMON_LIST);
     var html = list.map(function (f) {
-      var on = selectedFood && selectedFood.name === f.name && selectedFood.cat === f.cat ? ' on' : '';
-      return '<div class="row2' + on + '" data-food="' + esc(f.cat) + '|' + esc(f.name) + '">' +
-        '<span>' + esc(f.name) + '</span>' +
-        '<small>' + r0(f.kcal) + ' kcal · 碳 ' + r1(f.c) + ' 蛋 ' + r1(f.p) + ' 脂 ' + r1(f.f) + '（每 100 克）</small></div>';
+      var on = selectedFood && selectedFood.idx === f.idx ? ' on' : '';
+      var label = (f.brand ? f.brand + ' · ' : '') + (f.serving ? f.serving + ' ' : '');
+      return '<div class="row2' + on + '" data-idx="' + f.idx + '">' +
+        '<span>' + esc(f.name) + (f.brand && f.name.indexOf(f.brand) < 0 ? '<small style="margin-left:6px">' + esc(f.brand) + '</small>' : '') + '</span>' +
+        '<small>' + r0(f.kcal) + ' kcal · ' + (f.kcalOnly ? '（仅热量）' : ('碳 ' + r1(f.c) + ' 蛋 ' + r1(f.p) + ' 脂 ' + r1(f.f))) +
+        '（' + foodUnitText(f) + '）' + (f.code ? ' · ' + esc(f.code) : '') + '</small></div>';
     }).join('');
-    $('#fres').innerHTML = html || '<div class="empty" style="padding:12px">没有找到匹配的食物，可用「+ 手动录入」</div>';
+    $('#fres').innerHTML = html || '<div class="empty" style="padding:12px">没有找到匹配的食物，可用条码查询或「+ 手动录入」</div>';
+  }
+  function selectFood(f) {
+    selectedFood = f;
+    $('#fsel').classList.remove('hide');
+    var extra = [];
+    if (f.brand) extra.push(f.brand);
+    if (f.cat) extra.push(f.cat);
+    if (f.note) extra.push(f.note);
+    $('#fselName').innerHTML = esc(f.name) + (extra.length ? ' <small class="hint">· ' + esc(extra.join(' · ')) + '</small>' : '') +
+      ' <small class="hint">（' + foodUnitText(f) + '）</small>';
+    $('#famountLabel').childNodes[0].nodeValue = (f.unit === 'serving' ? '份数' : (f.unit === '100ml' ? '食用量（毫升）' : '食用量（克）'));
+    $('#fgrams').value = foodAmount(f);
+    fillFromGrams();
+    $$('#fres .row2').forEach(function (x) { x.classList.toggle('on', n(x.dataset.idx) === f.idx); });
   }
   $('#fres').addEventListener('click', function (e) {
-    var row = e.target.closest('[data-food]');
+    var row = e.target.closest('[data-idx]');
     if (!row) return;
-    var parts = row.dataset.food.split('|');
-    var cat = parts[0], name = parts.slice(1).join('|');
-    selectedFood = FOODS.filter(function (f) { return f.cat === cat && f.name === name; })[0];
-    if (!selectedFood) return;
-    $$('#fres .row2').forEach(function (x) { x.classList.remove('on'); });
-    row.classList.add('on');
-    $('#fsel').classList.remove('hide');
-    $('#fselName').textContent = selectedFood.name + ' · ' + selectedFood.cat;
-    $('#fgrams').value = 100;
-    fillFromGrams();
+    var f = FOODS[n(row.dataset.idx)];
+    if (f) selectFood(f);
   });
   function fillFromGrams() {
     if (!selectedFood) return;
-    var g = n($('#fgrams').value) / 100;
-    $('#fKcal').value = r0(selectedFood.kcal * g);
-    $('#fC').value = r1(selectedFood.c * g);
-    $('#fP').value = r1(selectedFood.p * g);
-    $('#fF').value = r1(selectedFood.f * g);
+    var amt = n($('#fgrams').value);
+    var factor = selectedFood.unit === 'serving' ? amt : amt / 100;
+    $('#fKcal').value = r0(selectedFood.kcal * factor);
+    $('#fC').value = r1(selectedFood.c * factor);
+    $('#fP').value = r1(selectedFood.p * factor);
+    $('#fF').value = r1(selectedFood.f * factor);
+  }
+  /* ---------- 条码查询：先查本地内置，再联网查 Open Food Facts 并缓存 ---------- */
+  function offProductToFood(p) {
+    var nut = p.nutriments || {};
+    function per100(key) {
+      var v = Number(nut[key + '_100g']);
+      if (!isFinite(v)) v = Number(nut[key]);
+      return isFinite(v) ? v : 0;
+    }
+    var kcal = per100('energy-kcal');
+    if (!(kcal > 0)) {
+      var kj = per100('energy');
+      if (kj > 0) kcal = kj / 4.184;
+    }
+    if (!(kcal > 0)) return null;
+    var name = (p.product_name_zh || p.product_name || '').trim() || ('条码 ' + p.code);
+    return {
+      code: String(p.code || ''), name: name.slice(0, 40),
+      brand: String(p.brands || '').split(',')[0].trim().slice(0, 24),
+      kcal: Math.round(kcal * 10) / 10,
+      p: Math.round(per100('proteins') * 10) / 10,
+      f: Math.round(per100('fat') * 10) / 10,
+      c: Math.round(per100('carbohydrates') * 10) / 10,
+      fb: Math.round(per100('fiber') * 10) / 10,
+      serving: String(p.serving_size || '').slice(0, 14),
+      cat: '包装食品（Open Food Facts）', unit: '100g', src: 'off'
+    };
+  }
+  function setCodeHint(html) { var el = $('#fcodeHint'); if (el) el.innerHTML = html; }
+  function lookupBarcode() {
+    var raw = String($('#fcode').value || '').replace(/\D/g, '');
+    if (raw.length < 8) { setCodeHint('<b style="color:#b4552f">请输入完整的商品条码（8–14 位数字）</b>'); return; }
+    var local = BY_CODE[raw];
+    if (local) {
+      selectFood(local);
+      setCodeHint('✅ 本地已有「' + esc(local.name) + '」（离线可用）。条码数据来自 Open Food Facts（ODbL 1.0 / DbCL 1.0）。');
+      return;
+    }
+    setCodeHint('正在联网查询 Open Food Facts…');
+    var url = 'https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(raw) +
+      '.json?fields=code,product_name,product_name_zh,brands,nutriments,serving_size,quantity';
+    fetch(url, { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.product) {
+          setCodeHint('没有查到条码 <b>' + esc(raw) + '</b>。可换一个条码，或用「+ 手动录入」按包装上的营养表填写。');
+          return;
+        }
+        var item = offProductToFood(d.product);
+        if (!item) { setCodeHint('查到了「' + esc(d.product.product_name || raw) + '」，但缺少热量数据，无法直接使用。'); return; }
+        item.idx = FOODS.length;
+        FOODS.push(item);
+        BY_CODE[raw] = item;
+        db.customFoods[raw] = item;
+        save();
+        selectFood(item);
+        setCodeHint('✅ 已从 Open Food Facts 查到并<b>缓存到本机</b>（以后离线也能用）：' + esc(item.name) + '。数据来自 Open Food Facts（ODbL 1.0 / DbCL 1.0）。');
+      })
+      .catch(function () {
+        setCodeHint('查询失败（需要联网）。条码查询失败时可以用「+ 手动录入」照着包装营养表填。');
+      });
   }
   function saveFoodFromDb() {
     if (!selectedFood) { alert('请先选择一种食物'); return; }
-    var grams = n($('#fgrams').value);
+    var amt = n($('#fgrams').value);
+    var isServing = selectedFood.unit === 'serving';
+    var brand = selectedFood.brand || '';
     db.entries.push({
-      id: uid(), type: 'food', date: date, meal: $('#fmeal').value, name: selectedFood.name,
-      grams: grams > 0 ? grams : null, kcal: n($('#fKcal').value), c: n($('#fC').value), p: n($('#fP').value), f: n($('#fF').value),
-      time: $('#ftime').value || nowTime(), created: Date.now(), src: 'db'
+      id: uid(), type: 'food', date: date, meal: $('#fmeal').value,
+      name: selectedFood.name + (brand && selectedFood.name.indexOf(brand) < 0 ? '（' + brand + '）' : ''),
+      grams: (!isServing && amt > 0) ? amt : null,
+      servings: isServing ? amt : null,
+      unit: selectedFood.unit || '100g',
+      servingLabel: selectedFood.serving || '',
+      kcal: n($('#fKcal').value), c: n($('#fC').value), p: n($('#fP').value), f: n($('#fF').value),
+      time: $('#ftime').value || nowTime(), created: Date.now(), src: selectedFood.src || 'db'
     });
     $('#foodDlg').close(); commit();
   }
@@ -1491,39 +1778,35 @@
 
   /* ===================== 初始化 ===================== */
   function initSelects() {
-    $('#fcat').innerHTML = '<option value="*">全部分类</option>' + CATS.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+    var cftc = CATS.filter(function (c) { return c.indexOf('包装食品') !== 0 && ['奶茶 / 茶饮', '酒类', '甜品 / 小吃', '便利店常见食品', '外卖 / 快餐', '中式外卖常见菜品（估算）', '超市常见食品', '乳制品 / 蛋白补充', '品牌食品'].indexOf(c) < 0; });
+    var packed = CATS.filter(function (c) { return cftc.indexOf(c) < 0; });
+    $('#fcat').innerHTML = '<option value="*">全部分类</option>' +
+      '<optgroup label="中国食物成分表（每 100 克）">' + cftc.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('') + '</optgroup>' +
+      (packed.length ? '<optgroup label="包装 · 品牌食品（含条码 / 每份）">' + packed.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('') + '</optgroup>' : '');
     $('#fmeal').innerHTML = MEALS.map(function (m) { return '<option value="' + m[0] + '">' + m[1] + '</option>'; }).join('');
     $('#mMeal').innerHTML = MEALS.map(function (m) { return '<option value="' + m[0] + '">' + m[1] + '</option>'; }).join('');
     $('#bFormula').innerHTML = FORMULAS.map(function (f) { return '<option value="' + f[0] + '">' + f[1] + '</option>'; }).join('');
     $('#bActivity').innerHTML = ACTIVITY.map(function (a) { return '<option value="' + a[0] + '">' + a[1] + '</option>'; }).join('');
-    $('#dbInfo').textContent = '内置食物库 ' + FOODS.length + ' 条 · ' + CATS.length + ' 个分类';
+    $('#dbInfo').textContent = '食物库 ' + FOODS.length + ' 条 · ' + CATS.length + ' 个分类';
+    var offEl = $('#packOffCount'), brEl = $('#packBrandCount');
+    if (offEl) offEl.textContent = (PACK.off || []).length;
+    if (brEl) brEl.textContent = (PACK.brand || []).length;
     $('#foodDbInfo').textContent = '已内置 ' + FOODS.length + ' 种食物（' + CATS.length + ' 个分类），营养值为每 100 克可食部：热量、碳水化合物、蛋白质、脂肪、膳食纤维。支持按名称搜索与按分类浏览。';
     renderStorage();
   }
 
-  /* 断食倒计时：只更新文字，避免整页重绘打断输入 */
-  function tickFasting() {
-    var f = fastingInfo();
-    if (!f) return;
-    var tb = $('#tbFast');
-    if (tb) tb.innerHTML = (f.eating ? '进食中' : '断食中') + ' · ' + f.start + '–' + f.end + ' · ' + f.text + (f.outside ? (' · 有 ' + f.outside + ' 条记录在窗口外') : '');
-    var box = $('#fastStatus');
-    if (box && !$('#planTab').classList.contains('hide')) {
-      box.innerHTML = '<b>' + (f.eating ? '进食窗口开放中' : '断食中') + '</b>　' + f.text +
-        '<div class="hint" style="margin-top:6px">今日 ' + f.start + '–' + f.end + ' 之外的食物记录：' + f.outside + ' 条' +
-        (f.outside ? '（窗口外进食不会让记录失效，只是提醒你留意）' : '') + '</div>';
-    }
-  }
+  /* 断食倒计时：只更新文字，避免整页重绘打断输入（实现见「断食计时」小节） */
 
   var bootInfo = { source: 'new' };
   db = normalize(null);
   initSelects();
   bind();
   boot().then(function (source) {
+    restoreCustomFoods();
     render();
     renderStorage();
     bootInfo.source = source;
-    setInterval(tickFasting, 30000);
+    setInterval(tickFasting, 15000);
     try { console.log('[健康日记] 数据来源：' + source + '，存储：' + storageInfo.backend); } catch (e) { }
     window.__hd.ready = true;
   });
