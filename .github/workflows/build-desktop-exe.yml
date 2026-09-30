@@ -1,0 +1,63 @@
+name: build-desktop-exe
+
+# 用 GitHub 的 Windows runner 构建 Pake 桌面版（本机没有 Rust/MSVC，所以放到云端编译）
+# 触发：仓库 Actions 页点 Run workflow，或由助手调用 API 触发
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: '要打包的网址'
+        required: true
+        default: 'https://wutong117.github.io/health-diary/'
+      appname:
+        description: '应用名（英文，用于 exe 文件名）'
+        required: true
+        default: 'HealthDiary'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Cargo 依赖（第二次构建会快很多）
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-pake-${{ runner.os }}-v1
+
+      - name: 安装 Pake CLI
+        run: npm install -g pake-cli
+
+      - name: Pake 版本
+        run: pake --version
+
+      - name: 构建 exe
+        shell: pwsh
+        run: |
+          pake "${{ inputs.url }}" `
+            --name "${{ inputs.appname }}" `
+            --icon ./icons/health-diary.ico `
+            --width 1180 --height 820 `
+            --targets x64
+          Write-Host '--- 产物 ---'
+          Get-ChildItem -Recurse -Include *.exe,*.msi -ErrorAction SilentlyContinue |
+            Select-Object FullName, @{n='MB';e={[math]::Round($_.Length/1MB,2)}} | Format-Table -AutoSize
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.appname }}-exe
+          path: |
+            **/*.exe
+            **/*.msi
+          if-no-files-found: warn
+          retention-days: 30
