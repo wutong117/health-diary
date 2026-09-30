@@ -589,33 +589,33 @@
     var s = '<div class="chartWrap"><svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="体重趋势图">';
     for (var g = 0; g <= 4; g++) {
       var gv = min + (max - min) * g / 4, gy = Y(gv);
-      s += '<line x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '" stroke="#eef2ee" stroke-width="1"/>' +
-        '<text x="' + (padL - 8) + '" y="' + (gy + 4).toFixed(1) + '" text-anchor="end" font-size="11" fill="#8a9790">' + gv.toFixed(1) + '</text>';
+      s += '<line x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '" style="stroke:var(--border)" stroke-width="1"/>' +
+        '<text x="' + (padL - 8) + '" y="' + (gy + 4).toFixed(1) + '" text-anchor="end" font-size="11" style="fill:var(--text-3)">' + gv.toFixed(1) + '</text>';
     }
     (periodDates || []).forEach(function (pd) {
       var i = -1;
       for (var k = 0; k < pts.length; k++) if (pts[k].date === pd) { i = k; break; }
-      if (i >= 0) s += '<line x1="' + X(i).toFixed(1) + '" y1="' + padT + '" x2="' + X(i).toFixed(1) + '" y2="' + (H - padB) + '" stroke="#f0c3cd" stroke-width="6" opacity="0.75"/>';
+      if (i >= 0) s += '<line x1="' + X(i).toFixed(1) + '" y1="' + padT + '" x2="' + X(i).toFixed(1) + '" y2="' + (H - padB) + '" style="stroke:var(--danger)" stroke-width="6" opacity="0.18"/>';
     });
     if (goalKg > 0) {
       var ty = Y(goalKg);
-      s += '<line x1="' + padL + '" y1="' + ty.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + ty.toFixed(1) + '" stroke="#c2703c" stroke-width="1.5" stroke-dasharray="6 4"/>' +
-        '<text x="' + (W - padR) + '" y="' + (ty - 7).toFixed(1) + '" text-anchor="end" font-size="11" fill="#c2703c">目标 ' + goalKg + ' kg</text>';
+      s += '<line x1="' + padL + '" y1="' + ty.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + ty.toFixed(1) + '" style="stroke:var(--warn)" stroke-width="1.5" stroke-dasharray="6 4"/>' +
+        '<text x="' + (W - padR) + '" y="' + (ty - 7).toFixed(1) + '" text-anchor="end" font-size="11" style="fill:var(--warn)">目标 ' + goalKg + ' kg</text>';
     }
     pts.forEach(function (x, i) {
-      if (x.weight != null) s += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(x.weight).toFixed(1) + '" r="2.8" fill="#a9cbb9"/>';
+      if (x.weight != null) s += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(x.weight).toFixed(1) + '" r="2.8" style="fill:var(--text-3)" opacity="0.5"/>';
     });
     var d = pts.map(function (x, i) { return (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(x.trend).toFixed(1); }).join(' ');
-    s += '<path d="' + d + '" fill="none" stroke="#187453" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>';
+    s += '<path d="' + d + '" fill="none" style="stroke:var(--accent)" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>';
     [0, Math.floor((pts.length - 1) / 2), pts.length - 1].forEach(function (i, k) {
       if (k === 1 && pts.length < 3) return;
-      s += '<text x="' + X(i).toFixed(1) + '" y="' + (H - 10) + '" text-anchor="' + (k === 0 ? 'start' : (k === 2 ? 'end' : 'middle')) + '" font-size="11" fill="#8a9790">' + pts[i].date.slice(5) + '</text>';
+      s += '<text x="' + X(i).toFixed(1) + '" y="' + (H - 10) + '" text-anchor="' + (k === 0 ? 'start' : (k === 2 ? 'end' : 'middle')) + '" font-size="11" style="fill:var(--text-3)">' + pts[i].date.slice(5) + '</text>';
     });
     s += '</svg></div>';
-    s += '<div class="legend"><span><i style="background:#187453"></i>7 日移动平均（看趋势）</span>' +
-      '<span><i style="background:#a9cbb9"></i>每日实测</span>' +
-      (goalKg > 0 ? '<span><i style="background:#c2703c"></i>目标体重</span>' : '') +
-      '<span><i style="background:#f0c3cd"></i>经期标记</span></div>';
+    s += '<div class="legend"><span><i style="background:var(--accent)"></i>7 日移动平均（看趋势）</span>' +
+      '<span><i style="background:var(--text-3)"></i>每日实测</span>' +
+      (goalKg > 0 ? '<span><i style="background:var(--warn)"></i>目标体重</span>' : '') +
+      '<span><i style="background:var(--danger)"></i>经期标记</span></div>';
     return s;
   }
 
@@ -1233,10 +1233,12 @@
     $('#date').onchange = function (e) { if (isDate(e.target.value)) { date = e.target.value; render(); } };
 
     /* 标签页 */
+    /* 顶部标签与移动端底部导航共用同一套切换逻辑（按 tab 键同步高亮） */
     $$('[data-tab]').forEach(function (b) {
       b.onclick = function () {
-        $$('[data-tab]').forEach(function (x) { x.classList.toggle('on', x === b); });
-        Object.keys(TAB_PANELS).forEach(function (k) { $('#' + TAB_PANELS[k]).classList.toggle('hide', b.dataset.tab !== k); });
+        var key = b.dataset.tab;
+        $$('[data-tab]').forEach(function (x) { x.classList.toggle('on', x.dataset.tab === key); });
+        Object.keys(TAB_PANELS).forEach(function (k) { $('#' + TAB_PANELS[k]).classList.toggle('hide', key !== k); });
       };
     });
 
