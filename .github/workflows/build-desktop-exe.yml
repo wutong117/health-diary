@@ -48,16 +48,25 @@ jobs:
             --icon ./icons/health-diary.ico `
             --width 1180 --height 820 `
             --targets x64
-          Write-Host '--- 产物 ---'
-          Get-ChildItem -Recurse -Include *.exe,*.msi -ErrorAction SilentlyContinue |
-            Select-Object FullName, @{n='MB';e={[math]::Round($_.Length/1MB,2)}} | Format-Table -AutoSize
+
+      - name: 收集产物（安装包 + 绿色版 exe）
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          # 安装包（msi）
+          Get-ChildItem -Recurse -Include *.msi -ErrorAction SilentlyContinue |
+            Copy-Item -Destination dist -Force
+          # 绿色版：Tauri release 目录里的主程序（排除 uninstall/helper）
+          Get-ChildItem -Recurse -Filter *.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\release\\' -and $_.Name -notmatch 'unins|uninstall|setup' } |
+            Copy-Item -Destination dist -Force
+          Write-Host '--- dist 内容 ---'
+          Get-ChildItem dist | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,2)}} | Format-Table -AutoSize
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.appname }}-exe
-          path: |
-            **/*.exe
-            **/*.msi
-          if-no-files-found: warn
+          path: dist/*
+          if-no-files-found: error
           retention-days: 30
