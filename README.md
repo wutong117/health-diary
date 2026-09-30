@@ -12,8 +12,12 @@
 
 ## 网址
 
-部署在 GitHub Pages 后：
-`https://<你的用户名>.github.io/<仓库名>/`
+**https://wutong117.github.io/health-diary/**
+
+仓库：https://github.com/wutong117/health-diary
+
+> 更新方法：把改动推到本仓库 `main` 分支，GitHub Pages 约 1 分钟后自动重新构建。
+> Service Worker 对代码走"网络优先"，手机下次打开即拿到新版本；数据仍在手机本地，不受影响。
 
 ## 功能一览
 
