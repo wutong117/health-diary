@@ -62,6 +62,14 @@
       }
     }
   })();
+  /* 薄荷健康（个人自用补充，仅热量） */
+  (function () {
+    if (typeof HD_BOOHEE === 'undefined') return;
+    for (var i = 0; i < HD_BOOHEE.length; i++) {
+      var r = HD_BOOHEE[i];
+      FOODS.push({ name: r[0], kcal: n(r[1]), p: 0, f: 0, c: n(r[2]), fb: 0, cat: '薄荷热门食物', unit: '100g', src: 'boohee', per: r[3] || '' });
+    }
+  })();
   /* 包装食品（Open Food Facts，每 100g/ml，可条码检索） */
   var PACK = (typeof HD_PACKAGED !== 'undefined') ? HD_PACKAGED : { off: [], brand: [] };
   (function () {
