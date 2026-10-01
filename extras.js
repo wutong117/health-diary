@@ -186,7 +186,345 @@
     }).join('');
   }
 
-  /* ==================== 目标预测 ==================== */
+  /* ==================== 首页：今日概览 + 热力图 + 下周建议 + 还能吃什么 ==================== */
+  var HEAT_BG = ['var(--surface-3)', 'var(--accent-weak)', 'var(--accent)', '#15704f'];
+
+  function renderHome() {
+    var box = $('#xHome'); if (!box) return;
+    var host = hd(); if (!host) return;
+    var W = global.HDWorkout, db = host.db;
+    var today = host.today ? host.today() : host.date();
+    var t = host.totals(today), g = db.goals;
+    var remain = g.kcal - t.kcal;
+    var pT = (g.macro && g.macro.p) ? g.kcal * g.macro.p / 100 / 4 : 0;
+    var pLeft = Math.max(0, pT - t.p);
+    var over = remain < 0;
+
+    var days = [], i;
+    for (i = 83; i >= 0; i--) days.push(shiftDate(today, -i));
+    var kcalOf = {}, wtOf = {}, exOf = {};
+    db.entries.forEach(function (e) {
+      if (e.type === 'food') kcalOf[e.date] = (kcalOf[e.date] || 0) + n(e.kcal);
+      else if (e.type === 'weight') wtOf[e.date] = n(e.value);
+    });
+    if (W) W.state().sessions.forEach(function (s) { exOf[s.date] = 1; });
+    var heat = days.map(function (d) {
+      var lv = (kcalOf[d] > 200 ? 1 : 0) + (wtOf[d] > 0 ? 1 : 0) + (exOf[d] ? 1 : 0);
+      return '<span title="' + d + '：记录 ' + lv + ' 项" style="display:inline-block;width:12px;height:12px;border-radius:3px;margin:2px;background:' + HEAT_BG[lv] + '"></span>';
+    }).join('');
+    var doneDays = days.filter(function (d) { return kcalOf[d] > 200 || wtOf[d] > 0 || exOf[d]; }).length;
+
+    var r = W ? W.activeRoutine() : null, plan = '', deload = [];
+    if (r) {
+      plan = r.days.map(function (d) {
+        var items = d.items.slice(0, 4).map(function (it) {
+          if (it.mode === 'cardio') return exName(it.exId) + ' ' + (it.targetMin || 30) + ' 分';
+          var s = W.suggest(it);
+          return exName(it.exId) + ' ' + it.sets + '×' + it.repsMin + '–' + it.repsMax + ' @' + s.weight + 'kg';
+        }).join('；');
+        var label = d.weekday >= 0 ? ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.weekday] : '不排程';
+        return '<div class="trItem"><b>' + esc(d.name) + '</b><span class="hint">' + esc(label) + ' · ' + esc(items) + '</span></div>';
+      }).join('');
+      r.days.forEach(function (d) {
+        d.items.forEach(function (it) { if (n(it.miss) >= 2) deload.push(exName(it.exId) + '连续 ' + it.miss + ' 次未达标'); });
+      });
+      var SS = W.state().sessions, v14 = 0, v28 = 0;
+      SS.forEach(function (s) {
+        if (s.date >= shiftDate(today, -13)) v14 += W.volumeOf(s);
+        else if (s.date >= shiftDate(today, -27)) v28 += W.volumeOf(s);
+      });
+      if (v28 > 0 && v14 < v28 * 0.75) deload.push('近两周容量比前两周降 ' + Math.round((1 - v14 / v28) * 100) + '%');
+      var badSleep = 0;
+      db.entries.forEach(function (e) { if (e.type === 'rest' && e.date >= shiftDate(today, -6) && n(e.value) < 6) badSleep++; });
+      if (badSleep >= 3) deload.push('近 7 天有 ' + badSleep + ' 天睡眠不足 6 小时');
+    }
+
+    var foods = host.foods || [], eats = [];
+    if (remain > 150 && foods.length) {
+      eats = foods.filter(function (f) {
+        var k = n(f.kcal);
+        return k > 20 && k <= Math.max(150, remain * 0.6) && n(f.p) >= 8;
+      }).sort(function (a, b) {
+        return (n(b.p) / Math.max(1, n(b.kcal))) - (n(a.p) / Math.max(1, n(a.kcal)));
+      }).slice(0, 5);
+    }
+    function fname(f) { return f.n || f.name || ''; }
+
+    box.innerHTML =
+      '<section class="panel" style="border-left:3px solid ' + (over ? 'var(--danger)' : 'var(--accent)') + '">' +
+      '<div class="row"><h2>' + (over ? '今天已超出预算' : '今天还能吃') + '</h2><span class="hint">' + today + '</span></div>' +
+      '<div style="font-size:40px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin:4px 0 2px">' +
+      Math.abs(Math.round(remain)) + '<span style="font-size:15px;font-weight:400;color:var(--text-3)"> 千卡' + (over ? '（超）' : '') + '</span></div>' +
+      '<div class="bar"><i style="width:' + Math.min(100, g.kcal > 0 ? t.kcal / g.kcal * 100 : 0) + '%"' + (over ? ' class="over"' : '') + '></i></div>' +
+      '<div class="stats4" style="margin-top:12px">' +
+      '<div><small>已摄入</small><b>' + Math.round(t.kcal) + '</b><span>/ ' + Math.round(g.kcal) + ' 千卡</span></div>' +
+      '<div><small>蛋白质还差</small><b>' + Math.round(pLeft) + '</b><span>g（已 ' + Math.round(t.p) + '）</span></div>' +
+      '<div><small>饮水</small><b>' + Math.round(t.water) + '</b><span>/ ' + Math.round(g.water) + ' ml</span></div>' +
+      '<div><small>近 84 天</small><b>' + doneDays + '</b><span>天有记录</span></div>' +
+      '</div><div class="hint" style="margin-top:8px">' + heat + '</div>' +
+      (eats.length ? '<div class="row" style="margin-top:14px"><b>今天还能吃什么</b><span class="hint">按 ' + Math.round(remain) + ' 千卡余量 + 蛋白密度挑的</span></div>' +
+        eats.map(function (f) {
+          return '<span class="tag" style="margin:3px 4px 0 0;padding:5px 10px;font-size:12px">' + esc(fname(f)) +
+            ' <b>' + Math.round(n(f.kcal)) + ' kcal</b> · 蛋白 ' + r1(n(f.p)) + 'g</span>';
+        }).join('') +
+        '<div class="hint" style="margin-top:6px">数值按每 100 克计；想精确记录点「每日记录 → 食物库」搜索添加。</div>'
+        : (remain > 150 ? '' : '<div class="hint" style="margin-top:10px">今天热量余量不多了，优先补蛋白质和蔬菜。</div>')) +
+      '</section>' +
+
+      (r ? '<section class="panel">' +
+        '<div class="row"><h2>下周该练什么</h2><span class="hint">按渐进超负荷自动推算</span></div>' +
+        (deload.length ? '<div class="trReason"><b>提示：考虑减载</b> —— ' + esc(deload.join('；')) +
+          '。减载周把训练量减 40–60% 或强度降 10–20%，别停练。</div>' : '') +
+        plan +
+        '<div class="hint" style="margin-top:6px">重量是"下次该用的建议值"：上次每组都做到次数上限就加重，否则保持重量、目标每组 +1 次。</div>' +
+        '</section>' : '');
+  }
+
+  /* ==================== AI 问诊摘要（导出给豆包等 AI） ====================
+   * 不接 API：不用密钥、不加服务器、数据不外流。只在本地算好「线索」，
+   * 让 AI 有方向地回答，而不是从一堆数字里瞎猜。
+   */
+  function buildAiText(includeMoney) {
+    var host = hd(); if (!host) return '';
+    var W = global.HDWorkout, db = host.db, today = host.today ? host.today() : host.date();
+    var days = [], i; for (i = 27; i >= 0; i--) days.push(shiftDate(today, -i));
+    var per = {};
+    days.forEach(function (d) { per[d] = { kcal: 0, p: 0, c: 0, f: 0, rest: 0, logged: false }; });
+    db.entries.forEach(function (e) {
+      var x = per[e.date]; if (!x) return;
+      if (e.type === 'food') { x.logged = true; x.kcal += n(e.kcal); x.p += n(e.p); x.c += n(e.c); x.f += n(e.f); }
+      else if (e.type === 'rest') x.rest += n(e.value);
+    });
+    var wt = db.entries.filter(function (e) { return e.type === 'weight' && n(e.value) > 0; })
+      .map(function (e) { return { date: e.date, kg: n(e.value) }; }).sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    var l7 = days.slice(-7);
+    var val = function (f) { return l7.map(f).filter(function (v) { return v > 0; }); };
+    var mean = function (a) { return a.length ? a.reduce(function (x, y) { return x + y; }, 0) / a.length : 0; };
+    var goal = n(db.profile && db.profile.targetWeight) || 0;
+    var budget = n(db.goals.kcal) || 0;
+    var kg = n(db.profile && db.profile.weight) || (wt.length ? wt[wt.length - 1].kg : 0);
+    var fc = F.weight(wt, goal, today, 0);
+    var kcal = Math.round(mean(val(function (d) { return per[d].kcal; })));
+    var prot = Math.round(mean(val(function (d) { return per[d].p; })));
+    var rest = r1(mean(val(function (d) { return per[d].rest; })));
+    var poorSleep = l7.filter(function (d) { return per[d].rest > 0 && per[d].rest < 6; }).length;
+    var logged = l7.filter(function (d) { return per[d].kcal > 200; }).length;
+    var deficit = budget > 0 && kcal > 0 ? budget - kcal : 0;
+    var ppk = kg > 0 && prot > 0 ? r1(prot / kg) : 0;
+    var S = W.state().sessions;
+    var s14 = S.filter(function (s) { return s.date >= shiftDate(today, -13); });
+    var s28 = S.filter(function (s) { return s.date >= shiftDate(today, -27) && s.date < shiftDate(today, -13); });
+    var vol = function (l) { return Math.round(l.reduce(function (a, s) { return a + W.volumeOf(s); }, 0)); };
+    var cardio = s14.reduce(function (a, s) { return a + W.cardioMinOf(s); }, 0);
+    var e1 = {}, ids = {};
+    S.forEach(function (s) { s.entries.forEach(function (e) { if (e.mode !== 'cardio') ids[e.exId] = 1; }); });
+    Object.keys(ids).slice(0, 5).forEach(function (id) {
+      var ser = W.e1rmSeries(id);
+      if (ser.length >= 2) e1[id] = { now: r1(ser[ser.length - 1].v), d: r1(ser[ser.length - 1].v - ser[Math.max(0, ser.length - 4)].v) };
+    });
+    var mo = null;
+    if (includeMoney && global.HDMoney && global.HDMoney.state()) {
+      var MM = global.HDMoney.state(), ym = today.slice(0, 7);
+      var st = global.HDMoney.monthStats(MM, ym, today), fi = global.HDMoney.foodInsight(MM);
+      var tdays = MM.items.filter(function (e) { return e.cat === 'food' && e.sub === '外卖' && e.date.slice(0, 7) === ym; }).map(function (e) { return e.date; });
+      var tk = [], ok2 = [];
+      tdays.forEach(function (d) { if (per[d] && per[d].kcal > 0) tk.push(per[d].kcal); });
+      days.forEach(function (d) { if (tdays.indexOf(d) < 0 && per[d].kcal > 0) ok2.push(per[d].kcal); });
+      mo = { spent: st.spent, budget: st.budget, food: fi.total, takeout: fi.takeoutSpend, rate: fi.takeoutRate, tk: Math.round(mean(tk)), ok: Math.round(mean(ok2)), tn: tk.length, on: ok2.length };
+    }
+    var L = [];
+    L.push('【我的减重数据摘要】' + today);
+    L.push('');
+    L.push('一、体重');
+    if (kg > 0) L.push('- 当前 ' + kg + ' kg' + (goal > 0 ? '，目标 ' + goal + ' kg' : ''));
+    if (fc.ok) L.push('- 近 28 天：' + (fc.rateWeek > 0 ? '+' : '') + fc.rateWeek + ' kg/周（平滑值 ' + fc.level + '，记录 ' + fc.pts + ' 次，波动 ±' + fc.residual + ' kg）');
+    else L.push('- 趋势暂不可算：' + fc.reason);
+    if (wt.length >= 8) {
+      var w3 = wt.filter(function (p) { return p.date >= shiftDate(today, -20); });
+      if (w3.length >= 3) {
+        var dd = r1(w3[w3.length - 1].kg - w3[0].kg);
+        if (kg > 0 && Math.abs(dd) < kg * 0.006) L.push('- 近 3 周体重仅变化 ' + dd + ' kg（**可能处于平台期**）');
+      }
+    }
+    L.push('');
+    L.push('二、饮食（近 7 天）');
+    L.push('- 平均 ' + kcal + ' 千卡' + (budget > 0 ? ' / 预算 ' + budget + '（日均缺口约 ' + Math.round(deficit) + '）' : ''));
+    L.push('- 蛋白质 ' + prot + ' g' + (ppk > 0 ? '（' + ppk + ' g/kg）' : '') + '，碳水 ' + Math.round(mean(val(function (d) { return per[d].c; }))) + ' g，脂肪 ' + Math.round(mean(val(function (d) { return per[d].f; }))) + ' g');
+    L.push('- 7 天中有 ' + logged + ' 天记录了饮食');
+    L.push('');
+    L.push('三、训练（近 14 天）');
+    L.push('- 力量 ' + s14.length + ' 次，容量 ' + vol(s14) + ' kg' + (s28.length ? '（前 14 天 ' + vol(s28) + ' kg）' : '') + '，有氧 ' + cardio + ' 分钟');
+    var e1k = Object.keys(e1);
+    if (e1k.length) L.push('- e1RM：' + e1k.map(function (k) { return exName(k) + ' ' + e1[k].now + 'kg(' + (e1[k].d >= 0 ? '+' : '') + e1[k].d + ')'; }).join('、'));
+    L.push('');
+    L.push('四、睡眠');
+    L.push('- 平均 ' + (rest || '—') + ' 小时' + (poorSleep ? '，' + poorSleep + ' 天不足 6 小时' : ''));
+    if (mo) {
+      L.push('');
+      L.push('五、花费（本月）');
+      L.push('- 总支出 ' + mo.spent + (mo.budget > 0 ? ' / 预算 ' + mo.budget : '') + '；餐饮 ' + mo.food + '，外卖 ' + mo.takeout + '（外卖率 ' + mo.rate + '%）');
+      if (mo.tn >= 3 && mo.on >= 3) L.push('- 外卖日平均摄入 ' + mo.tk + ' 千卡（' + mo.tn + ' 天），非外卖日 ' + mo.ok + ' 千卡（' + mo.on + ' 天）');
+    }
+    var c = [];
+    if (deficit > 0 && fc.ok) {
+      var pred = deficit * 7 / 7700;
+      if (Math.abs(pred - Math.abs(fc.rateWeek)) > Math.max(0.25, pred * 0.5)) c.push('按缺口静态推算应减 ' + r1(pred) + ' kg/周，实际只有 ' + Math.abs(fc.rateWeek) + ' kg/周（可能代谢适应，或记录漏记）');
+    }
+    if (ppk > 0 && ppk < 1.6) c.push('蛋白质 ' + ppk + ' g/kg 低于常见建议 1.6 g/kg');
+    if (poorSleep >= 2) c.push('近 7 天有 ' + poorSleep + ' 天睡眠不足 6 小时');
+    if (logged < 7) c.push('7 天只记录了 ' + logged + ' 天饮食，数据不完整');
+    if (s28.length >= 3 && vol(s28) > 0) {
+      var ch = Math.round((vol(s14) - vol(s28)) / vol(s28) * 100);
+      if (ch <= -25) c.push('训练容量比前两周下降 ' + Math.abs(ch) + '%');
+      else if (ch >= 40) c.push('训练容量比前两周增加 ' + ch + '%');
+    }
+    if (s14.length === 0 && S.length > 0) c.push('近 14 天没有力量训练');
+    if (mo && mo.rate >= 55) c.push('外卖占餐饮 ' + mo.rate + '%');
+    if (mo && mo.tn >= 3 && mo.on >= 3 && mo.tk > mo.ok + 150) c.push('外卖日摄入比非外卖日高 ' + (mo.tk - mo.ok) + ' 千卡');
+    L.push('');
+    L.push('六、我在本地先算出的线索（供参考，不一定是答案）');
+    L.push(c.length ? c.map(function (x) { return '- ' + x; }).join('\n') : '- 没发现明显异常，请从数据里找我没注意到的规律');
+    L.push('');
+    L.push('七、我的问题');
+    L.push('最近体重没有明显变化，帮我看看问题最可能出在哪里？请指出最值得先改的 2–3 件事并说明依据。');
+    return L.join('\n');
+  }
+
+  function renderAi() {
+    var box = $('#xAi'); if (!box) return;
+    box.innerHTML = '<div class="hint">把数据整理成一段结构化摘要，复制到豆包（或任何 AI）里提问即可。' +
+      '<b>不接 API、不用密钥、不加服务器</b>，发什么由你勾选决定。</div>' +
+      '<div class="controls" style="margin-top:10px">' +
+      '<label class="trNoProg hint"><input type="checkbox" id="xAiMoney"> 包含花费数据</label>' +
+      '<button class="mini primary" id="xAiBuild">生成摘要</button>' +
+      '<button class="mini" id="xAiCopy" disabled>复制</button></div>' +
+      '<div id="xAiOut" style="margin-top:10px"></div>';
+  }
+  function doBuild() {
+    var txt = buildAiText($('#xAiMoney') && $('#xAiMoney').checked);
+    $('#xAiOut').innerHTML = '<textarea id="xAiText" readonly style="width:100%;height:280px;font:12px/1.6 ui-monospace,Consolas,monospace;' +
+      'border:1px solid var(--border-strong);border-radius:8px;padding:10px;background:var(--surface);color:var(--text);white-space:pre"></textarea>' +
+      '<div class="hint">共 ' + txt.length + ' 字。复制后到豆包粘贴，最后一段的问题可以改成你自己的。</div>';
+    $('#xAiText').value = txt;
+    $('#xAiCopy').disabled = false;
+  }
+  function copyAi() {
+    var ta = $('#xAiText'); if (!ta) return;
+    ta.select(); var okc = false;
+    try { okc = document.execCommand('copy'); } catch (e) { }
+    if (!okc && navigator.clipboard) { navigator.clipboard.writeText(ta.value); okc = true; }
+    alert(okc ? '已复制，到豆包里粘贴即可。' : '复制失败，请手动全选复制。');
+  }
+
+  /* ==================== 互补洞察：睡眠 ↔ 训练 ↔ 饮食 ====================
+   * 口径与门槛来自调研（Nedeltcheva 2010 / Craven 2022 / Knowles 2022 / Spiegel 2004 等）：
+   *   · Load = Σ(重量 × 次数)；对比「前夜 <6h」与「≥7h」的次日训练容量
+   *   · 睡眠达标周（≥5 天睡 ≥7h）vs 未达标周的体重变化速率
+   *   · 睡眠不足次日的热量摄入差异
+   *   样本门槛：配对每条件 ≥6 个训练日才显示；周级每类 ≥3 周。不够就明说"还不够"。
+   */
+  function shiftDate(d, k) {
+    var p = String(d).split('-'); var dt = new Date(+p[0], +p[1] - 1, +p[2]);
+    dt.setDate(dt.getDate() + k);
+    return dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate());
+  }
+  function pad(v) { return (v < 10 ? '0' : '') + v; }
+
+  function insights() {
+    var host = hd(); if (!host) return null;
+    var W = global.HDWorkout; if (!W) return null;
+    var S = W.state();
+    var sleepBy = {}, kcalBy = {}, wtBy = {};
+    host.db.entries.forEach(function (e) {
+      if (e.type === 'rest') sleepBy[e.date] = (sleepBy[e.date] || 0) + n(e.value);
+      else if (e.type === 'food') kcalBy[e.date] = (kcalBy[e.date] || 0) + n(e.kcal);
+      else if (e.type === 'weight') wtBy[e.date] = n(e.value);
+    });
+    /* ① 前夜睡眠 vs 次日训练容量 */
+    var goodLoad = [], poorLoad = [];
+    S.sessions.forEach(function (s) {
+      var prev = shiftDate(s.date, -1);
+      var sl = sleepBy[prev];
+      if (!(sl > 0)) return;
+      var load = 0;
+      s.entries.forEach(function (e) { if (e.mode !== 'cardio') e.sets.forEach(function (x) { if (x.done) load += n(x.w) * n(x.r); }); });
+      if (load <= 0) return;
+      if (sl < 6) poorLoad.push(load); else if (sl >= 7) goodLoad.push(load);
+    });
+    /* ② 睡眠不足次日的热量摄入 */
+    var kcalPoor = [], kcalGood = [];
+    Object.keys(kcalBy).forEach(function (d) {
+      var sl = sleepBy[shiftDate(d, -1)];
+      if (!(sl > 0) || !(kcalBy[d] > 200)) return;
+      if (sl < 6) kcalPoor.push(kcalBy[d]); else if (sl >= 7) kcalGood.push(kcalBy[d]);
+    });
+    /* ③ 睡眠达标周 vs 未达标周的体重速率 */
+    var weeks = {};
+    Object.keys(sleepBy).forEach(function (d) {
+      var p = d.split('-'); var dt = new Date(+p[0], +p[1] - 1, +p[2]);
+      var mon = shiftDate(d, -((dt.getDay() + 6) % 7));
+      (weeks[mon] = weeks[mon] || { days: 0, good: 0, w: [] });
+      weeks[mon].days++;
+      if (sleepBy[d] >= 7) weeks[mon].good++;
+      if (wtBy[d] > 0) weeks[mon].w.push({ d: d, v: wtBy[d] });
+    });
+    var okW = [], badW = [];
+    Object.keys(weeks).forEach(function (k) {
+      var w = weeks[k];
+      if (w.days < 4 || w.w.length < 2) return;
+      var rate = (w.w[w.w.length - 1].v - w.w[0].v);
+      if (w.good >= 5) okW.push(rate); else badW.push(rate);
+    });
+    var avg = function (a) { return a.length ? a.reduce(function (x, y) { return x + y; }, 0) / a.length : 0; };
+    return {
+      goodLoad: goodLoad.length, poorLoad: poorLoad.length,
+      goodAvg: Math.round(avg(goodLoad)), poorAvg: Math.round(avg(poorLoad)),
+      loadDiff: goodLoad.length && poorLoad.length ? Math.round((1 - avg(poorLoad) / avg(goodLoad)) * 100) : 0,
+      kcalPoorAvg: Math.round(avg(kcalPoor)), kcalGoodAvg: Math.round(avg(kcalGood)),
+      kcalDiff: kcalPoor.length && kcalGood.length ? Math.round(avg(kcalPoor) - avg(kcalGood)) : 0,
+      kcalPoorN: kcalPoor.length, kcalGoodN: kcalGood.length,
+      goodWeeks: okW.length, badWeeks: badW.length,
+      goodWeekRate: r1(avg(okW)), badWeekRate: r1(avg(badW))
+    };
+  }
+
+  function renderInsights() {
+    var host = hd(); if (!host) return '';
+    var ins = insights();
+    if (!ins) return '';
+    var rows = [];
+    /* ① 训练容量 */
+    if (ins.goodLoad >= 6 && ins.poorLoad >= 6) {
+      rows.push('<div class="trItem"><b>睡眠不足次日</b><span class="hint">前夜睡 <6 小时的次日训练容量平均 <b>' + ins.poorAvg +
+        ' kg</b>；睡 ≥7 小时是 <b>' + ins.goodAvg + ' kg</b>，相差 <b>' + (ins.loadDiff > 0 ? '−' : '+') + Math.abs(ins.loadDiff) +
+        '%</b>（各 ' + ins.poorLoad + ' / ' + ins.goodLoad + ' 次训练）</span></div>');
+    } else {
+      rows.push('<div class="trItem"><b>睡眠与训练容量</b><span class="hint">还不够判断：需要"睡 <6 小时"和"睡 ≥7 小时"各至少 6 次训练（现在分别是 ' +
+        ins.poorLoad + ' / ' + ins.goodLoad + '）</span></div>');
+    }
+    /* ② 热量摄入 */
+    if (ins.kcalPoorN >= 6 && ins.kcalGoodN >= 6) {
+      rows.push('<div class="trItem"><b>睡眠不足次日吃多少</b><span class="hint">前夜 <6 小时的次日平均摄入 <b>' + ins.kcalPoorAvg +
+        ' 千卡</b>，≥7 小时是 <b>' + ins.kcalGoodAvg + ' 千卡</b>，' + (ins.kcalDiff > 0 ? '多吃 ' + ins.kcalDiff : '少吃 ' + Math.abs(ins.kcalDiff)) +
+        ' 千卡（研究里睡眠限制会升高饥饿感，这里用你自己的数据看有没有应验）</span></div>');
+    } else {
+      rows.push('<div class="trItem"><b>睡眠与热量摄入</b><span class="hint">还不够判断：两类各需 ≥6 天（现在 ' + ins.kcalPoorN + ' / ' + ins.kcalGoodN + ' 天）</span></div>');
+    }
+    /* ③ 周级体重速率 */
+    if (ins.goodWeeks >= 3 && ins.badWeeks >= 3) {
+      rows.push('<div class="trItem"><b>睡眠达标周 vs 不达标周</b><span class="hint">睡得好（≥5 天 ≥7 小时）的周，体重变化平均 <b>' + ins.goodWeekRate +
+        ' kg/周</b>；不达标周 <b>' + ins.badWeekRate + ' kg/周</b>（各 ' + ins.goodWeeks + ' / ' + ins.badWeeks + ' 周）</span></div>');
+    } else {
+      rows.push('<div class="trItem"><b>睡眠与体重速率</b><span class="hint">还不够判断：两类周各需 ≥3 周（现在 ' + ins.goodWeeks + ' / ' + ins.badWeeks + ' 周）</span></div>');
+    }
+    return '<div class="row" style="margin-top:18px"><b>互补洞察：睡眠 ↔ 训练 ↔ 饮食</b><span class="hint">只做相关，不下因果结论</span></div>' +
+      rows.join('') +
+      '<div class="hint" style="margin-top:8px">这些是<b>你自己的数据</b>里的相关性，样本小、且睡眠与训练往往同时被作息/压力影响，' +
+      '所以只用来"发现自己身上的规律"，不能当因果。研究支持的背景：睡眠限制会降低训练容量与脂肪减少比例（Nedeltcheva 2010）、' +
+      '升高饥饿感（Spiegel 2004）；而力量训练反过来能改善主观睡眠质量（Kovacevic 2018）。</div>';
+  }
+
+
   function weightPoints() {
     var host = hd(); if (!host) return [];
     return host.db.entries.filter(function (e) { return e.type === 'weight' && n(e.value) > 0; })
@@ -294,7 +632,7 @@
         }).join('');
       }
     }
-    box.innerHTML = html;
+    box.innerHTML = html + renderInsights();
   }
 
   /* ==================== 事件 ==================== */
@@ -316,7 +654,10 @@
       }
     });
     root.addEventListener('click', function (ev) {
-      if (ev.target && ev.target.id === 'xHrGo') {
+      if (!ev.target || !ev.target.id) return;
+      if (ev.target.id === 'xAiBuild') { doBuild(); return; }
+      if (ev.target.id === 'xAiCopy') { copyAi(); return; }
+      if (ev.target.id === 'xHrGo') {
         var age = n($('#xHrAge') && $('#xHrAge').value), rest = n($('#xHrRest') && $('#xHrRest').value);
         paintZones(F.hrZones(age, rest || 60));
       }
@@ -324,7 +665,7 @@
   }
 
   global.HDExtras = {
-    render: function () { try { renderMethods(); renderCardio(); renderForecast(); } catch (e) { console.warn('扩展模块渲染失败', e); } },
+    render: function () { try { renderHome(); renderMethods(); renderCardio(); renderForecast(); renderAi(); } catch (e) { console.warn('扩展模块渲染失败', e); } },
     bind: bind, applyProgram: applyProgram, addCardio: addCardio,
     _renderMethods: renderMethods, _renderForecast: renderForecast,
     setFilter: function (k) { methodFilter = k; }
