@@ -548,3 +548,48 @@ footer {
 .wkV { font-weight: 650; font-variant-numeric: tabular-nums; }
 .wkV i { font-style: normal; font-size: var(--fs-1); font-weight: 400; color: var(--text-3); margin-left: 3px; }
 .wkD { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-3); font-size: var(--fs-1); }
+
+/* ==================== 应用外壳：修「滚动时底部导航上移」+ 提升跟手感 ====================
+ * 移动端浏览器向下滚动时地址栏会收起，布局视口高度随之变化，
+ * 导致 position:fixed 的底部导航重新定位（视觉上就是"导航往上跑"）。
+ * 解法：让文档本身不滚动，改由 main 内部滚动 —— 导航变成普通流元素，永不位移，
+ * 且滚动带惯性、更接近原生 App（这就是 iOS / 安卓原生 App 的做法）。
+ */
+@media (max-width: 760px) {
+  html { height: 100%; }
+
+  body {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;                    /* 文档不滚动 */
+    overscroll-behavior: none;           /* 关掉下拉刷新/橡皮筋，避免视口抖动 */
+  }
+
+  /* 顶部栏固定为 flex 项，不再需要 sticky */
+  header.appbar { position: static; flex: 0 0 auto; }
+
+  main {
+    flex: 1 1 auto;
+    min-height: 0;                       /* flex 子项能正确收缩并出现滚动条 */
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;   /* iOS 惯性滚动 */
+    overscroll-behavior: contain;        /* 滚到底不回弹到外层 */
+    padding-bottom: calc(var(--sp-4) + env(safe-area-inset-bottom));
+  }
+
+  .bottomNav {
+    position: static;                    /* 关键：回到正常流，滚动时不会位移 */
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    z-index: 40;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* 弹窗与浮层维持在视口层，不受外壳影响 */
+dialog, .toast, .trTimer { position: fixed; }
