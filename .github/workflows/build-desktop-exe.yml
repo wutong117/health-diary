@@ -65,9 +65,13 @@ jobs:
           foreach ($r in $roots) {
             if (-not (Test-Path $r)) { continue }
             Write-Host "搜索: $r"
-            Get-ChildItem -Path $r -Recurse -Filter *.exe -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -notmatch 'unins|uninstall|setup|crashpad' } |
+            # 只取 Pake 打出来的应用本体（pake.exe / pake-<name>.exe），不要 Rust 的 build-script 中间产物
+            Get-ChildItem -Path $r -Recurse -Filter 'pake*.exe' -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\release\\' } |
               Copy-Item -Destination dist -Force
+            Get-ChildItem -Path $r -Recurse -Filter 'pake*.exe' -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -notmatch '\\release\\' } |
+              Copy-Item -Destination dist -Force -ErrorAction SilentlyContinue
           }
           Write-Host '--- dist 内容 ---'
           Get-ChildItem dist -ErrorAction SilentlyContinue |
