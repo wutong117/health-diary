@@ -506,7 +506,7 @@
       if (!db.workout) db.workout = HDWorkout.normalizeState(null);
       HDWorkout.attach(db.workout);
       HDWorkout.render();
-      HDExtras.render(); HDInsights2.render(); HDWeekly.render();
+      HDExtras.render(); HDInsights2.render(); HDWeekly.render(); if (window.HDPlanEdit) HDPlanEdit.render();
       HDMoney.attach(db.money); HDMoney.render();
     } catch (e) { console.warn('训练/扩展模块渲染失败', e); }
     $('#title').textContent = (date === today()) ? '今天' : ((d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日');
@@ -1949,7 +1949,7 @@
   HDWorkout.create({ today: today, save: save, esc: esc, n: n, uid: uid });
   HDWorkout.attach(db.workout);
   HDWorkout.bind(document);
-  HDExtras.bind(document);
+  HDExtras.bind(document); if (window.HDPlanEdit) HDPlanEdit.bind(document);
   HDMoney.create({ today: today, save: save, entries: function () { return db.entries; } }); HDMoney.bind(document);
   initSelects();
   bind();
