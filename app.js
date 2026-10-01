@@ -135,6 +135,15 @@
     _freqCache = m; _freqN = db.entries.length;
     return m;
   }
+  /* 小标记：区分「速食/包装」与「餐馆现做」—— 同名食物热量可能差好几倍 */
+  var INSTANT_RE = /自热|速食|方便面|即食|泡面|袋装|桶装|杯装|杯面|速冻|代餐|能量棒|蛋白棒|薄荷生活|轻食主义|冷冻/;
+  var CHAIN_RE = /麦当劳|肯德基|必胜客|星巴克|瑞幸|喜茶|奈雪|蜜雪冰城|华莱士|汉堡王|赛百味|吉野家|真功夫|沙县|黄焖鸡|兰州拉面|便利店|全家|罗森/;
+  function foodKindTag(f) {
+    var nm = String(f.name || '');
+    if (INSTANT_RE.test(nm)) return '<i class="fk fk-instant" title="包装/速食产品，按包装标示">速食</i>';
+    if (CHAIN_RE.test(nm)) return '<i class="fk fk-chain" title="连锁餐饮，不同门店可能略有差异">连锁</i>';
+    return '';
+  }
   function searchFood(q, cat, limit) {
     q = String(q || '').trim();
     var ql = q.toLowerCase();
@@ -440,7 +449,7 @@
       if (!db.workout) db.workout = HDWorkout.normalizeState(null);
       HDWorkout.attach(db.workout);
       HDWorkout.render();
-      HDExtras.render(); HDInsights2.render();
+      HDExtras.render(); HDInsights2.render(); HDWeekly.render();
       HDMoney.attach(db.money); HDMoney.render();
     } catch (e) { console.warn('训练/扩展模块渲染失败', e); }
     $('#title').textContent = (date === today()) ? '今天' : ((d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日');
@@ -541,8 +550,15 @@
       var mk = MEALS[i][0], ml = MEALS[i][1];
       var items = list.filter(function (x) { return x.meal === mk; });
       var sub = items.reduce(function (s, x) { return s + n(x.kcal); }, 0);
+      var _lastSame = null;
+      for (var _i = db.entries.length - 1; _i >= 0; _i--) {
+        var _e = db.entries[_i];
+        if (_e && _e.type === 'food' && _e.meal === mk) { _lastSame = _e; break; }
+      }
       html += '<div class="meal"><div class="mealHead"><span><b>' + ml + '</b> · ' + items.length + ' 项</span>' +
-        '<span>' + r0(sub) + ' 千卡 <button class="mini" data-addmeal="' + mk + '">+ 添加</button></span></div>';
+        '<span>' + r0(sub) + ' 千卡 ' +
+        (_lastSame ? '<button class="mini" data-againmeal="' + mk + '" title="把上次这个餐次吃的东西原样再加一次">又是这个</button> ' : '') +
+        '<button class="mini" data-addmeal="' + mk + '">+ 添加</button></span></div>';
       html += items.length ? items.map(foodRow).join('') : '<div class="empty">暂无记录</div>';
       html += '</div>';
     }
@@ -1528,6 +1544,20 @@
         else openEntry(item.type, item);
         return;
       }
+      /* 一键「又是这个」：把该餐次最近一次的食物原样复制到今天 */
+      var again = e.target.closest('[data-againmeal]');
+      if (again) {
+        var mk2 = again.dataset.againmeal, src = null;
+        for (var k2 = db.entries.length - 1; k2 >= 0; k2--) {
+          var e2 = db.entries[k2];
+          if (e2 && e2.type === 'food' && e2.meal === mk2) { src = e2; break; }
+        }
+        if (!src) { alert('这个餐次还没有历史记录。'); return; }
+        var cp = clone(src);
+        cp.id = uid(); cp.date = date; cp.created = Date.now(); cp.time = nowTime();
+        db.entries.push(cp); commit();
+        return;
+      }
       var am = e.target.closest('[data-addmeal]');
       if (am) { openFoodDlg(am.dataset.addmeal); return; }
       var ca = e.target.closest('[data-clearadj]');
@@ -1602,7 +1632,7 @@
       var on = selectedFood && selectedFood.idx === f.idx ? ' on' : '';
       var label = (f.brand ? f.brand + ' · ' : '') + (f.serving ? f.serving + ' ' : '');
       return '<div class="row2' + on + '" data-idx="' + f.idx + '">' +
-        '<span>' + esc(f.name) + (f.brand && f.name.indexOf(f.brand) < 0 ? '<small style="margin-left:6px">' + esc(f.brand) + '</small>' : '') + '</span>' +
+        '<span>' + esc(f.name) + foodKindTag(f) + (f.brand && f.name.indexOf(f.brand) < 0 ? '<small style="margin-left:6px">' + esc(f.brand) + '</small>' : '') + '</span>' +
         '<small>' + r0(f.kcal) + ' kcal · ' + (f.kcalOnly ? '（仅热量）' : ('碳 ' + r1(f.c) + ' 蛋 ' + r1(f.p) + ' 脂 ' + r1(f.f))) +
         '（' + foodUnitText(f) + '）' + (f.code ? ' · ' + esc(f.code) : '') + '</small></div>';
     }).join('');
