@@ -40,10 +40,13 @@
     <button data-tab="train">训练</button>
     <button data-tab="plan">方案</button>
     <button data-tab="weight">体重趋势</button>
+    <button data-tab="money">记账</button>
     <button data-tab="data">设置与说明</button>
   </div>
 
   <div id="daily">
+    <div id="xHome"></div>
+    <div id="xAttr"></div>
     <div id="todayBar" class="todayBar"></div>
     <div class="stats">
       <div class="stat">
@@ -310,6 +313,11 @@
       </div>
     </section>
     <section class="panel">
+      <div class="row"><h2>AI 问诊摘要</h2><span class="hint">导出给豆包等 AI 分析</span></div>
+      <div id="xAi"></div>
+    </section>
+
+    <section class="panel">
       <div class="row"><h2>目标预测</h2><span class="hint">按最近趋势推算，区间而非单点</span></div>
       <div id="xForecast"></div>
     </section>
@@ -367,6 +375,43 @@
     </section>
   </div>
 
+  <div id="moneyTab" class="hide">
+    <section class="panel">
+      <div class="row"><h2>本月概况</h2><span class="hint" id="mnMonthInfo"></span></div>
+      <div id="mnOverview"></div>
+      <div class="controls" style="margin-top:10px">
+        <button class="mini" data-mn-prev>← 上个月</button>
+        <button class="mini" data-mn-next>下个月 →</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="row"><h2>记一笔</h2><span class="hint">输入金额 → 选分类 → 记一笔</span></div>
+      <div id="mnQuick"></div>
+    </section>
+
+    <section class="panel">
+      <div class="row"><h2>消费分析</h2><span class="hint">本月各分类占比</span></div>
+      <div id="mnMonthCats"></div>
+      <div id="mnCats"></div>
+    </section>
+
+    <section class="panel">
+      <div class="row"><h2>饮食 · 健身花费</h2><span class="hint">和健康记录打通</span></div>
+      <div id="mnHealth"></div>
+    </section>
+
+    <section class="panel">
+      <div class="row"><h2>本月明细</h2><span class="hint">点右侧「删」可删除</span></div>
+      <div id="mnList"></div>
+    </section>
+
+    <section class="panel">
+      <div class="row"><h2>预算设置</h2><span class="hint">不设也能记流水</span></div>
+      <div id="mnBudget"></div>
+    </section>
+  </div>
+
   <div id="data" class="hide">
     <section class="panel">
       <div class="row"><h2>数据管理</h2></div>
@@ -382,6 +427,10 @@
     </section>
     <section class="panel">
       <div class="row"><h2>食物数据来源与署名</h2></div>
+      <p class="hint"><b>台湾食品營養成分資料庫（TFND）</b>：資料來源為<b>衛生福利部食品藥物管理署</b>，
+      依「政府資料開放授權條款第 1 版」（OGDL v1.0，與 CC BY 4.0 相容）釋出，得自由重製、散布、改作與再授權。
+      <a href="https://data.fda.gov.tw/data/opendata/export/20/csv" target="_blank" rel="noreferrer">官方下載</a>。
+      本应用已將繁體名稱轉為簡體，繁体原名保留於資料中以便溯源（共 2175 項）。</p>
       <p class="hint">
       <b>中国食物成分表</b>（1666 条，每 100 克）：<a href="https://github.com/Sanotsu/china-food-composition-data" target="_blank" rel="noreferrer">Sanotsu/china-food-composition-data</a>
       ——《中国食物成分表标准版（第 6 版）》"能量和食物一般营养成分"部分。<br>
@@ -420,6 +469,7 @@
   <button data-tab="plan"><span class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg></span>方案</button>
   <button data-tab="weight"><span class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l5-6 4 3 7-8"/><path d="M15 6h5v5"/></svg></span>趋势</button>
   <button data-tab="data"><span class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6L17 7M7 17l-1.4 1.4"/></svg></span>设置</button>
+  <button data-tab="money"><span class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5h17v10a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M3.5 8.5V7a2 2 0 0 1 2-2h10"/><circle cx="16.5" cy="13.5" r="1.2"/></svg></span>记账</button>
 </nav>
 <footer>健康日记 · 单文件本地应用 · 食物成分数据来自 GitHub 开源项目，营养值仅供参考。</footer>
 
@@ -482,6 +532,7 @@
 
 <script src="food-db.js"></script>
 <script src="food-extra.js"></script>
+<script src="food-tw.js"></script>
 <script src="diet-library.js"></script>
 <script src="plans.js"></script>
 <script src="exercise-db.js"></script>
@@ -489,6 +540,8 @@
 <script src="programs-db.js"></script>
 <script src="forecast.js"></script>
 <script src="extras.js"></script>
+<script src="insights2.js"></script>
+<script src="money.js"></script>
 <script src="app.js"></script>
 <script>
 /* Service Worker 只在 http(s) 下可用；直接双击 file:// 打开时自动跳过，功能不受影响 */
