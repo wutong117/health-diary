@@ -19,7 +19,7 @@
     meals: { breakfast: 25, lunch: 35, dinner: 30, snack: 10 },
     floorEnabled: true
   };
-  var TAB_PANELS = { daily: 'daily', train: 'trainTab', plan: 'planTab', weight: 'weightTab', data: 'data' };
+  var TAB_PANELS = { daily: 'daily', train: 'trainTab', plan: 'planTab', weight: 'weightTab', money: 'moneyTab', data: 'data' };
 
   /* ===================== 小工具 ===================== */
   var $ = function (s) { return document.querySelector(s); };
@@ -47,6 +47,18 @@
       for (var i = 0; i < arr.length; i++) {
         var r = arr[i];
         FOODS.push({ name: r[0], kcal: n(r[1]), p: n(r[2]), f: n(r[3]), c: n(r[4]), fb: n(r[5]), cat: cat, unit: '100g', src: 'cfct' });
+      }
+    }
+  })();
+  /* 台湾食品營養成分資料庫（OGDL v1.0，須署名 TFDA） */
+  (function () {
+    if (typeof HD_TW === 'undefined') return;
+    for (var cat in HD_TW) {
+      if (!Object.prototype.hasOwnProperty.call(HD_TW, cat)) continue;
+      var arr = HD_TW[cat];
+      for (var i = 0; i < arr.length; i++) {
+        var r = arr[i];
+        FOODS.push({ name: r[0], kcal: n(r[1]), p: n(r[2]), f: n(r[3]), c: n(r[4]), fb: n(r[5]), cat: cat, unit: '100g', src: 'tfnd', tw: r[6] || '' });
       }
     }
   })();
@@ -102,25 +114,43 @@
       if (CATS.indexOf(item.cat) < 0) CATS.push(item.cat);
     });
   }
+  /* 你记过的食物排前面 —— 扩库到 4000+ 条后，这是「更好找」而不是「更难找」的关键 */
+  var _freqCache = null, _freqN = -1;
+  function foodFreq() {
+    if (!db || !Array.isArray(db.entries)) return {};
+    if (_freqCache && _freqN === db.entries.length) return _freqCache;
+    var m = {};
+    for (var i = 0; i < db.entries.length; i++) {
+      var e = db.entries[i];
+      if (e && e.type === 'food' && e.name) m[e.name] = (m[e.name] || 0) + 1;
+    }
+    _freqCache = m; _freqN = db.entries.length;
+    return m;
+  }
   function searchFood(q, cat, limit) {
     q = String(q || '').trim();
     var ql = q.toLowerCase();
+    var freq = foodFreq();
     var out = [];
     for (var i = 0; i < FOODS.length; i++) {
       var f = FOODS[i];
       if (cat && cat !== '*' && f.cat !== cat) continue;
+      var used = freq[f.name] || 0;
       if (q) {
-        if (f.code && f.code === q) { out.push([-1, 0, f]); continue; }      /* 条码精确命中 */
+        if (f.code && f.code === q) { out.push([-2, -used, 0, f]); continue; }   /* 条码精确命中最优先 */
         var idx = f.name.indexOf(q);
-        if (idx === 0) out.push([0, f.name.length, f]);                      /* 名称以关键词开头 */
-        else if (idx > 0) out.push([1, idx, f]);
-        else if (f.brand && f.brand.toLowerCase().indexOf(ql) >= 0) out.push([2, f.name.length, f]);
+        var pr;
+        if (f.name === q) pr = -1;                                              /* 名称完全一致 */
+        else if (idx === 0) pr = 0;                                             /* 以关键词开头 */
+        else if (idx > 0) pr = 1;                                               /* 包含关键词 */
+        else if (f.brand && f.brand.toLowerCase().indexOf(ql) >= 0) pr = 2;      /* 品牌命中 */
         else continue;
+        out.push([pr, -used, f.name.length, f]);                                /* used 越多越靠前 */
       } else if (!cat || cat === '*') continue;
-      else out.push([0, f.name.length, f]);
+      else out.push([0, -used, f.name.length, f]);
     }
-    out.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
-    return out.slice(0, limit || 150).map(function (x) { return x[2]; });
+    out.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]; });
+    return out.slice(0, limit || 150).map(function (x) { return x[3]; });
   }
 
   /* ===================== 数据层 ===================== */
@@ -215,6 +245,7 @@
     }
     /* 训练模块状态（计划、模板、训练记录、个人记录） */
     out.workout = HDWorkout.normalizeState(raw && raw.workout);
+    out.money = HDMoney.normalize(raw && raw.money);
     return out;
   }
   function migrateV1(raw) {
@@ -401,7 +432,8 @@
       if (!db.workout) db.workout = HDWorkout.normalizeState(null);
       HDWorkout.attach(db.workout);
       HDWorkout.render();
-      HDExtras.render();
+      HDExtras.render(); HDInsights2.render();
+      HDMoney.attach(db.money); HDMoney.render();
     } catch (e) { console.warn('训练/扩展模块渲染失败', e); }
     $('#title').textContent = (date === today()) ? '今天' : ((d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日');
     $('#subtitle').textContent = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }).format(d);
@@ -1813,6 +1845,7 @@
   HDWorkout.attach(db.workout);
   HDWorkout.bind(document);
   HDExtras.bind(document);
+  HDMoney.create({ today: today, save: save, entries: function () { return db.entries; } }); HDMoney.bind(document);
   initSelects();
   bind();
   boot().then(function (source) {
@@ -1828,7 +1861,7 @@
   window.__hd = {
     get db() { return db; }, totals: totals, date: function () { return date; },
     search: searchFood, bmr: bmrValue, store: Store, storage: storageInfo, boot: function () { return bootInfo; },
-    render: render, save: save, plans: HD_PLANS, workout: HDWorkout, extras: HDExtras,
+    render: render, save: save, plans: HD_PLANS, workout: HDWorkout, extras: HDExtras, money: HDMoney, foods: FOODS, cats: CATS,
     today: today,
     ready: false
   };
