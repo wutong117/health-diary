@@ -19,7 +19,7 @@
     meals: { breakfast: 25, lunch: 35, dinner: 30, snack: 10 },
     floorEnabled: true
   };
-  var TAB_PANELS = { daily: 'daily', plan: 'planTab', review: 'reviewTab', weight: 'weightTab', data: 'data' };
+  var TAB_PANELS = { daily: 'daily', train: 'trainTab', plan: 'planTab', weight: 'weightTab', data: 'data' };
 
   /* ===================== 小工具 ===================== */
   var $ = function (s) { return document.querySelector(s); };
@@ -213,6 +213,8 @@
       } else { continue; }
       out.entries.push(item);
     }
+    /* 训练模块状态（计划、模板、训练记录、个人记录） */
+    out.workout = HDWorkout.normalizeState(raw && raw.workout);
     return out;
   }
   function migrateV1(raw) {
@@ -395,6 +397,12 @@
   /* ===================== 渲染 ===================== */
   function render() {
     var d = new Date(date + 'T12:00:00');
+    try {
+      if (!db.workout) db.workout = HDWorkout.normalizeState(null);
+      HDWorkout.attach(db.workout);
+      HDWorkout.render();
+      HDExtras.render();
+    } catch (e) { console.warn('训练/扩展模块渲染失败', e); }
     $('#title').textContent = (date === today()) ? '今天' : ((d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日');
     $('#subtitle').textContent = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }).format(d);
     $('#date').value = date;
@@ -1486,7 +1494,7 @@
       if (ca) { clearAdjust(ca.dataset.clearadj); return; }
       var rvPill = e.target.closest('#tbReview');
       if (rvPill) {
-        var btn = $$('[data-tab]').filter(function (x) { return x.dataset.tab === 'review'; })[0];
+        var btn = $$('[data-tab]').filter(function (x) { return x.dataset.tab === 'plan'; })[0];
         if (btn) btn.click();
         return;
       }
@@ -1801,6 +1809,10 @@
 
   var bootInfo = { source: 'new' };
   db = normalize(null);
+  HDWorkout.create({ today: today, save: save, esc: esc, n: n, uid: uid });
+  HDWorkout.attach(db.workout);
+  HDWorkout.bind(document);
+  HDExtras.bind(document);
   initSelects();
   bind();
   boot().then(function (source) {
@@ -1816,7 +1828,8 @@
   window.__hd = {
     get db() { return db; }, totals: totals, date: function () { return date; },
     search: searchFood, bmr: bmrValue, store: Store, storage: storageInfo, boot: function () { return bootInfo; },
-    render: render, save: save, plans: HD_PLANS,
+    render: render, save: save, plans: HD_PLANS, workout: HDWorkout, extras: HDExtras,
+    today: today,
     ready: false
   };
 })();
