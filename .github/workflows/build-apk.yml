@@ -1,0 +1,113 @@
+name: build-apk
+
+# 用 GitHub 的 ubuntu runner 云端编译安卓 APK（本机没有 JDK/Android SDK/npm）
+on:
+  workflow_dispatch:
+    inputs:
+      packageId:
+        description: '安卓包名（安装后不能改）'
+        required: true
+        default: 'com.wutong117.jiankangriji'
+      appName:
+        description: '应用显示名'
+        required: true
+        default: '健康日记'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      BUBBLEWRAP_KEYSTORE_PASSWORD: 'healthdiary'
+      BUBBLEWRAP_KEY_PASSWORD: 'healthdiary'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 接受 Android SDK 许可
+        run: |
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "SDK=$SDK"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          yes | "$SDK/tools/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+
+      - name: 安装 Bubblewrap
+        run: npm install -g @bubblewrap/cli
+
+      - name: 生成签名密钥（务必保存产物里的 keystore，更新 App 必须用它）
+        run: |
+          keytool -genkeypair -v \
+            -keystore android.keystore \
+            -alias android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "$BUBBLEWRAP_KEYSTORE_PASSWORD" \
+            -keypass "$BUBBLEWRAP_KEY_PASSWORD" \
+            -dname "CN=health-diary, OU=Personal, O=Personal, L=Beijing, ST=Beijing, C=CN"
+
+      - name: 写 twa-manifest.json
+        run: |
+          cat > twa-manifest.json <<EOF
+          {
+            "packageId": "${{ inputs.packageId }}",
+            "host": "wutong117.github.io",
+            "name": "${{ inputs.appName }}",
+            "launcherName": "${{ inputs.appName }}",
+            "display": "standalone",
+            "themeColor": "#187453",
+            "themeColorDark": "#0f1115",
+            "navigationColor": "#187453",
+            "navigationColorDark": "#171a1f",
+            "navigationDividerColor": "#187453",
+            "navigationDividerColorDark": "#171a1f",
+            "backgroundColor": "#f5f7f4",
+            "enableNotifications": false,
+            "startUrl": "/health-diary/index.html",
+            "iconUrl": "https://wutong117.github.io/health-diary/icons/icon-512.png",
+            "maskableIconUrl": "https://wutong117.github.io/health-diary/icons/icon-maskable-512.png",
+            "splashScreenFadeOutDuration": 300,
+            "signingKey": { "path": "./android.keystore", "alias": "android" },
+            "appVersionName": "1.0.0",
+            "appVersionCode": 1,
+            "shortcuts": [],
+            "generatorApp": "bubblewrap-cli",
+            "webManifestUrl": "https://wutong117.github.io/health-diary/manifest.webmanifest",
+            "fallbackType": "customtabs",
+            "features": {},
+            "isChromeOSOnly": false,
+            "isMetaQuest": false,
+            "fullScopeUrl": "https://wutong117.github.io/health-diary/",
+            "minSdkVersion": 21,
+            "orientation": "portrait",
+            "fingerprints": [],
+            "additionalTrustedOrigins": [],
+            "retainedBundles": [],
+            "appVersion": "1.0.0"
+          }
+          EOF
+          cat twa-manifest.json
+
+      - name: 编译 APK / AAB
+        run: bubblewrap build --skipPwaValidation
+
+      - name: 产物清单
+        run: |
+          ls -lh *.apk *.aab *.keystore 2>/dev/null || true
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-diary-apk
+          path: |
+            *.apk
+            *.aab
+            *.keystore
+            twa-manifest.json
+          if-no-files-found: error
+          retention-days: 30
