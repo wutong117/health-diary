@@ -344,6 +344,63 @@
     } catch (e) { return false; }
   }
   var storageInfo = { backend: '检测中', mirrored: false, source: 'new' };
+
+  /* ===================== CSV 导出（方便拿去 Excel 自己分析） ===================== */
+  function csvCell(v) {
+    var s = (v === null || v === undefined) ? '' : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function toCsv(rows) { return '\ufeff' + rows.map(function (r) { return r.map(csvCell).join(','); }).join('\r\n'); }
+  function download(name, text) {
+    var blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+  var csvKind = 'food';
+  function exportCsv() {
+    var kind = csvKind || 'food';
+    var rows = [], name = '健康日记-' + kind + '-' + today() + '.csv';
+    if (kind === 'food') {
+      rows.push(['日期', '餐次', '食物', '克/份', '单位', '热量kcal', '碳水g', '蛋白g', '脂肪g']);
+      db.entries.filter(function (e) { return e.type === 'food'; }).sort(byDateAsc).forEach(function (e) {
+        rows.push([e.date, mealName(e.meal), e.name, e.grams || e.servings || '', e.unit === 'serving' ? '份' : '克', r0(e.kcal), r1(e.c), r1(e.p), r1(e.f)]);
+      });
+    } else if (kind === 'weight') {
+      rows.push(['日期', '体重kg', '腰围cm', '臀围cm', '颈围cm', '睡眠h', '饮水ml']);
+      var byD = {};
+      db.entries.forEach(function (e) {
+        var x = byD[e.date] || (byD[e.date] = {});
+        if (e.type === 'weight') x.w = n(e.value);
+        else if (e.type === 'measure') { x.waist = n(e.waist); x.hip = n(e.hip); x.neck = n(e.neck); }
+        else if (e.type === 'rest') x.rest = n(e.value);
+        else if (e.type === 'water') x.water = n(e.value);
+      });
+      Object.keys(byD).sort().forEach(function (d) {
+        var x = byD[d];
+        rows.push([d, x.w || '', x.waist || '', x.hip || '', x.neck || '', x.rest || '', x.water || '']);
+      });
+    } else if (kind === 'workout' && typeof HDWorkout !== 'undefined') {
+      rows.push(['日期', '训练日', '动作', '组序', '重量kg', '次数', '分钟', '是否完成']);
+      HDWorkout.state().sessions.forEach(function (s) {
+        s.entries.forEach(function (e) {
+          e.sets.forEach(function (x, i) {
+            rows.push([s.date, s.dayName, e.exId, i + 1, e.mode === 'cardio' ? '' : n(x.w), e.mode === 'cardio' ? '' : n(x.r), e.mode === 'cardio' ? n(x.min) : '', x.done ? '是' : '否']);
+          });
+        });
+      });
+    } else if (kind === 'money' && typeof HDMoney !== 'undefined' && HDMoney.state()) {
+      rows.push(['日期', '类型', '分类', '小类', '金额', '支付方式', '备注']);
+      HDMoney.state().items.forEach(function (e) {
+        rows.push([e.date, e.type || 'expense', e.cat, e.sub, n(e.amount), e.pay, e.note]);
+      });
+    }
+    if (rows.length < 2) { alert('这一类还没有数据可导出。'); return; }
+    download(name, toCsv(rows));
+  }
+  function byDateAsc(a, b) { return a.date === b.date ? (a.created || 0) - (b.created || 0) : (a.date < b.date ? -1 : 1); }
+
   function boot() {
     return Store.get().then(function (idbState) {
       storageInfo.backend = Store.hasIdb() ? 'IndexedDB' : 'localStorage（IndexedDB 不可用）';
@@ -1573,6 +1630,7 @@
     });
 
     /* 导出 / 导入 */
+    $$('[data-csv]').forEach(function (b) { b.onclick = function () { csvKind = b.dataset.csv; exportCsv(); }; });
     $('#export').onclick = doExport; $('#export2').onclick = doExport;
     $('#import').onclick = function () { $('#file').click(); };
     $('#import2').onclick = function () { $('#file').click(); };
