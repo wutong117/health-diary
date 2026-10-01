@@ -6,7 +6,7 @@
  *  - 图片等静态资源用「缓存优先」，省流量也更快。
  * 改代码后如果想强制刷新缓存，把 CACHE 的版本号加一即可。
  */
-var CACHE = 'health-diary-v11';
+var CACHE = 'health-diary-v12';
 var ASSETS = [
   './',
   './index.html',
@@ -24,6 +24,7 @@ var ASSETS = [
   './forecast.js',
   './extras.js',
   './insights2.js',
+  './weekly.js',
   './money.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
