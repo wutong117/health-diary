@@ -53,15 +53,26 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          # 安装包（msi）
+          # 1) 安装包：Pake 会把 msi 拷回仓库根目录
           Get-ChildItem -Recurse -Include *.msi -ErrorAction SilentlyContinue |
             Copy-Item -Destination dist -Force
-          # 绿色版：Tauri release 目录里的主程序（排除 uninstall/helper）
-          Get-ChildItem -Recurse -Filter *.exe -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match '\\release\\' -and $_.Name -notmatch 'unins|uninstall|setup' } |
-            Copy-Item -Destination dist -Force
+          # 2) 绿色版 exe：Pake 其实是在自己的全局 npm 目录里编译的，产物不在仓库里
+          $roots = @(
+            'C:\npm\prefix\node_modules\pake-cli\src-tauri\target',
+            (Join-Path $env:APPDATA 'npm\node_modules\pake-cli\src-tauri\target'),
+            'C:\npm\prefix\node_modules\pake-cli'
+          )
+          foreach ($r in $roots) {
+            if (-not (Test-Path $r)) { continue }
+            Write-Host "搜索: $r"
+            Get-ChildItem -Path $r -Recurse -Filter *.exe -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -notmatch 'unins|uninstall|setup|crashpad' } |
+              Copy-Item -Destination dist -Force
+          }
           Write-Host '--- dist 内容 ---'
-          Get-ChildItem dist | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,2)}} | Format-Table -AutoSize
+          Get-ChildItem dist -ErrorAction SilentlyContinue |
+            Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,2)}} | Format-Table -AutoSize
+          if (-not (Get-ChildItem dist -ErrorAction SilentlyContinue)) { throw '没有收集到任何产物' }
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
