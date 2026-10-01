@@ -5,7 +5,7 @@
 ## 怎么用
 
 **方式一：直接双击 `index.html`**（最简单）
-浏览器直接打开就能用，功能完整（含 1666 条食物库、记录、目标、基础代谢计算）。
+浏览器直接打开就能用，功能完整（含 2410 条食物库、40 种饮食方法、条码查询、断食计时）。
 局限：不能"安装到桌面"，也没有离线缓存——但数据一样会保存在本机。
 
 **方式二：本地服务器（推荐在电脑上用）**
@@ -17,12 +17,14 @@ python serve.py --lan      # 允许手机在同一 WiFi 下访问
 识别成 `text/plain`，Chrome 会因此拒绝注册 Service Worker（离线与安装都会失效），
 `serve.py` 显式指定了正确的 MIME 类型。
 
-在 `http://127.0.0.1:8765/` 下打开后，Edge/Chrome 地址栏会出现"安装"图标，可装成独立窗口应用。
+**方式三：装成应用（推荐）**
+- **Windows**：打开 https://wutong117.github.io/health-diary/ ，Edge 地址栏右侧会出现"安装"图标，
+  装好后开始菜单里就是一个独立窗口的应用；也可以直接用桌面的「健康日记」快捷方式（Edge 应用模式）。
+- **手机**：安卓 Chrome 打开同一网址 → ⋮ →「安装应用」；iPhone 用 Safari → 分享 →「添加到主屏幕」。
+- **Windows 原生 exe**：仓库里的 `.github/workflows/build-desktop-exe.yml` 会用 GitHub 的
+  Windows runner 调 [Pake](https://github.com/tw93/Pake) 打出独立 exe（本机不需要装 Rust/MSVC），
+  在 Actions 页面手动触发即可，产物在运行页面的 Artifacts 里下载。
 
-**方式三：托管到 https（手机装到桌面）**
-把本文件夹整体上传到任意静态托管（GitHub Pages / Cloudflare Pages 等），手机上用
-Chrome 打开 → 菜单 → "添加到主屏幕"。托管上只有代码，没有你的任何记录数据。
-注意：手机通过局域网 IP（http://192.168.x.x）访问时不是安全上下文，无法安装 PWA。
 
 ## 功能
 
