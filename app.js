@@ -1647,7 +1647,16 @@
     $('#printBtn').onclick = copySummary;
 
     /* 食物库弹窗 */
-    $('#fq').oninput = function () { renderFoodResults(); };
+    var _fqTimer = null;
+    /* 防抖 130ms：5467 条里全量搜索 + 重建 150 行 DOM，每敲一个字都做会很卡 */
+    $('#fq').oninput = function () {
+      if (_fqTimer) clearTimeout(_fqTimer);
+      _fqTimer = setTimeout(function () { _fqTimer = null; renderFoodResults(); }, 130);
+    };
+    /* 回车立即搜（不等防抖） */
+    $('#fq').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { if (_fqTimer) { clearTimeout(_fqTimer); _fqTimer = null; } e.preventDefault(); renderFoodResults(); }
+    });
     $('#fcat').onchange = function () { renderFoodResults(); };
     $('#fcodeGo').onclick = lookupBarcode;
     $('#fcode').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); lookupBarcode(); } };
