@@ -214,6 +214,13 @@
     }).join('');
     var doneDays = days.filter(function (d) { return kcalOf[d] > 200 || wtOf[d] > 0 || exOf[d]; }).length;
 
+  function renderNextWeek() {
+    var box = $('#xNextWeek'); if (!box) return;
+    var host = hd(); if (!host) return;
+    var W = global.HDWorkout, db = host.db;
+    var today = host.today ? host.today() : host.date();
+    if (!W) { box.innerHTML = ''; return; }
+    var plan = '', deload = [];
     var r = W ? W.activeRoutine() : null, plan = '', deload = [];
     if (r) {
       plan = r.days.map(function (d) {
@@ -239,6 +246,9 @@
       if (badSleep >= 3) deload.push('近 7 天有 ' + badSleep + ' 天睡眠不足 6 小时');
     }
 
+    box.innerHTML = r ? ('<div class="row" style="margin-top:18px"><b>下周该练什么</b><span class="hint">按渐进超负荷自动推算</span></div>' +      (deload.length ? '<div class="trReason"><b>提示：考虑减载</b> —— ' + esc(deload.join('；')) +        '。减载周把训练量减 40–60% 或强度降 10–20%，别停练。</div>' : '') +      plan +      '<div class="hint" style="margin-top:6px">重量是"下次该用的建议值"：上次每组都做到次数上限就加重，否则保持重量、目标每组 +1 次。</div>')      : '';
+  }
+
     var foods = host.foods || [], eats = [];
     if (remain > 150 && foods.length) {
       eats = foods.filter(function (f) {
@@ -253,31 +263,28 @@
     box.innerHTML =
       '<section class="panel" style="border-left:3px solid ' + (over ? 'var(--danger)' : 'var(--accent)') + '">' +
       '<div class="row"><h2>' + (over ? '今天已超出预算' : '今天还能吃') + '</h2><span class="hint">' + today + '</span></div>' +
-      '<div style="font-size:40px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin:4px 0 2px">' +
+      '<div style="font-size:30px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin:2px 0 2px">' +
       Math.abs(Math.round(remain)) + '<span style="font-size:15px;font-weight:400;color:var(--text-3)"> 千卡' + (over ? '（超）' : '') + '</span></div>' +
       '<div class="bar"><i style="width:' + Math.min(100, g.kcal > 0 ? t.kcal / g.kcal * 100 : 0) + '%"' + (over ? ' class="over"' : '') + '></i></div>' +
       '<div class="stats4" style="margin-top:12px">' +
       '<div><small>已摄入</small><b>' + Math.round(t.kcal) + '</b><span>/ ' + Math.round(g.kcal) + ' 千卡</span></div>' +
       '<div><small>蛋白质还差</small><b>' + Math.round(pLeft) + '</b><span>g（已 ' + Math.round(t.p) + '）</span></div>' +
       '<div><small>饮水</small><b>' + Math.round(t.water) + '</b><span>/ ' + Math.round(g.water) + ' ml</span></div>' +
-      '<div><small>近 84 天</small><b>' + doneDays + '</b><span>天有记录</span></div>' +
-      '</div><div class="hint" style="margin-top:8px">' + heat + '</div>' +
-      (eats.length ? '<div class="row" style="margin-top:14px"><b>今天还能吃什么</b><span class="hint">按 ' + Math.round(remain) + ' 千卡余量 + 蛋白密度挑的</span></div>' +
+      '<div><small>睡眠</small><b>' + r1(t.rest || 0) + '</b><span>小时</span></div>' +
+      '</div><details style="margin-top:10px"><summary class="hint" style="cursor:pointer">'
+      + '近 84 天记录情况（' + doneDays + ' 天有记录）</summary>'
+      + '<div class="hint" style="margin-top:6px">' + heat + '</div></details>' +
+      (eats.length ? '<details style="margin-top:12px"><summary class="hint" style="cursor:pointer">'
+        + '今天还能吃什么（' + eats.length + ' 个建议）</summary>' +
         eats.map(function (f) {
           return '<span class="tag" style="margin:3px 4px 0 0;padding:5px 10px;font-size:12px">' + esc(fname(f)) +
             ' <b>' + Math.round(n(f.kcal)) + ' kcal</b> · 蛋白 ' + r1(n(f.p)) + 'g</span>';
         }).join('') +
-        '<div class="hint" style="margin-top:6px">数值按每 100 克计；想精确记录点「每日记录 → 食物库」搜索添加。</div>'
+        '<div class="hint" style="margin-top:6px">数值按每 100 克计；想精确记录点「食物库」搜索添加。</div></details>'
         : (remain > 150 ? '' : '<div class="hint" style="margin-top:10px">今天热量余量不多了，优先补蛋白质和蔬菜。</div>')) +
       '</section>' +
 
-      (r ? '<section class="panel">' +
-        '<div class="row"><h2>下周该练什么</h2><span class="hint">按渐进超负荷自动推算</span></div>' +
-        (deload.length ? '<div class="trReason"><b>提示：考虑减载</b> —— ' + esc(deload.join('；')) +
-          '。减载周把训练量减 40–60% 或强度降 10–20%，别停练。</div>' : '') +
-        plan +
-        '<div class="hint" style="margin-top:6px">重量是"下次该用的建议值"：上次每组都做到次数上限就加重，否则保持重量、目标每组 +1 次。</div>' +
-        '</section>' : '');
+      '';
   }
 
   /* ==================== AI 问诊摘要（导出给豆包等 AI） ====================
@@ -677,7 +684,7 @@
   }
 
   global.HDExtras = {
-    render: function () { try { renderHome(); renderMethods(); renderCardio(); renderForecast(); renderAi(); } catch (e) { console.warn('扩展模块渲染失败', e); } },
+    render: function () { try { renderHome(); renderNextWeek(); renderMethods(); renderCardio(); renderForecast(); renderAi(); } catch (e) { console.warn('扩展模块渲染失败', e); } },
     bind: bind, applyProgram: applyProgram, addCardio: addCardio,
     _renderMethods: renderMethods, _renderForecast: renderForecast,
     setFilter: function (k) { methodFilter = k; }
