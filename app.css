@@ -500,3 +500,35 @@ footer {
 
 .tableWrap { overflow-x: auto; margin-top: var(--sp-2); }
 @media (min-width: 761px) { .trTimer { bottom: 26px; } }
+
+/* =========================================================================
+ * 记账模块
+ * ========================================================================= */
+.mnAmount { display: flex; align-items: center; gap: 8px; padding: 6px 0 10px; border-bottom: 2px solid var(--border-strong); }
+.mnAmount span { font-size: 26px; font-weight: 700; color: var(--text-3); }
+.mnAmount input {
+  flex: 1; border: 0; background: transparent; color: var(--text);
+  font-size: 40px; font-weight: 700; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; padding: 0; min-width: 0;
+}
+.mnAmount input:focus { outline: none; }
+.mnAmount input::-webkit-outer-spin-button, .mnAmount input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.mnCats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.mnCats button {
+  height: 40px; padding: 0 18px; border-radius: var(--radius-pill); font-size: var(--fs-3);
+  border: 1px solid var(--border-strong); background: var(--surface); font-weight: 500;
+}
+.mnCats button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 650; }
+.mnSubs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.mnSubs button {
+  height: 32px; padding: 0 12px; border-radius: var(--radius-pill);
+  font-size: var(--fs-1); background: var(--surface-2); border: 1px solid transparent; color: var(--text-2);
+}
+.mnSubs button.on { background: var(--accent-weak); border-color: var(--accent); color: var(--accent); font-weight: 650; }
+.mnDay { border-bottom: 1px solid var(--border); padding: 6px 0 2px; }
+.mnDay:last-child { border-bottom: 0; }
+.mnDay > .row { padding-top: 6px; }
+@media (max-width: 760px) {
+  .mnAmount input { font-size: 34px; }
+  .mnCats button { height: 38px; padding: 0 14px; font-size: var(--fs-2); }
+}
