@@ -199,6 +199,8 @@
     var pT = (g.macro && g.macro.p) ? g.kcal * g.macro.p / 100 / 4 : 0;
     var pLeft = Math.max(0, pT - t.p);
     var over = remain < 0;
+    var eats = [];   /* 已移除「今天还能吃什么」：保留空数组让渲染走空分支 */
+    fillQuickRows(t, g, db);
 
     var days = [], i;
     for (i = 83; i >= 0; i--) days.push(shiftDate(today, -i));
@@ -249,16 +251,6 @@
     box.innerHTML = r ? ('<div class="row" style="margin-top:18px"><b>下周该练什么</b><span class="hint">按渐进超负荷自动推算</span></div>' +      (deload.length ? '<div class="trReason"><b>提示：考虑减载</b> —— ' + esc(deload.join('；')) +        '。减载周把训练量减 40–60% 或强度降 10–20%，别停练。</div>' : '') +      plan +      '<div class="hint" style="margin-top:6px">重量是"下次该用的建议值"：上次每组都做到次数上限就加重，否则保持重量、目标每组 +1 次。</div>')      : '';
   }
 
-    var foods = host.foods || [], eats = [];
-    if (remain > 150 && foods.length) {
-      eats = foods.filter(function (f) {
-        var k = n(f.kcal);
-        return k > 20 && k <= Math.max(150, remain * 0.6) && n(f.p) >= 8;
-      }).sort(function (a, b) {
-        return (n(b.p) / Math.max(1, n(b.kcal))) - (n(a.p) / Math.max(1, n(a.kcal)));
-      }).slice(0, 5);
-    }
-    function fname(f) { return f.n || f.name || ''; }
 
     box.innerHTML =
       '<section class="panel" style="border-left:3px solid ' + (over ? 'var(--danger)' : 'var(--accent)') + '">' +
@@ -286,6 +278,23 @@
 
       '';
   }
+
+
+  /* 一行入口里显示当前数值（在 renderHome 内调用） */
+  function fillQuickRows(t, g, db) {
+      var qw = $('#qWater');
+      if (qw) qw.textContent = Math.round(t.water) + ' / ' + Math.round(g.water) + ' ml';
+      var qr = $('#qRest');
+      if (qr) qr.textContent = r1(t.rest) + ' / ' + r1(g.rest) + ' 小时';
+      var qwt = $('#qWeight');
+      if (qwt) {
+        var last = null, i;
+        for (i = db.entries.length - 1; i >= 0; i--) {
+          if (db.entries[i].type === 'weight') { last = db.entries[i]; break; }
+        }
+        qwt.textContent = last ? (n(last.value) + ' kg（' + last.date + '）') : '还没记录';
+      }
+    }
 
   /* ==================== AI 问诊摘要（导出给豆包等 AI） ====================
    * 不接 API：不用密钥、不加服务器、数据不外流。只在本地算好「线索」，
