@@ -201,9 +201,53 @@
     return Math.round(n(met) * 3.5 * n(kg) / 200 * n(minutes));
   }
 
+
+  /* ---------- 自适应 TDEE ----------
+   * 静态公式（缺口×7700）会高估减重速度约一倍（代谢适应，Hall 等）。
+   * 正确做法：用你自己的体重趋势反推实际消耗 ——
+   *   实际消耗 ≈ 平均摄入 − (体重变化kg × 7700 ÷ 天数)
+   * 即：掉秤时消耗 = 摄入 + 缺口带来的能量。
+   */
+  function adaptiveTdee(pts, entries, today) {
+    var out = { ok: false };
+    var w = (pts || []).filter(function (p) { return p && p.kg > 0; }).sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    if (w.length < 8) { out.reason = '体重记录还不够（至少 8 次，建议 14 天以上）'; return out; }
+    var todayNum = dayNum(today);
+    var win = w.filter(function (p) { return todayNum - dayNum(p.date) <= 27; });
+    if (win.length < 6) { out.reason = '近 28 天体重记录不足 6 次'; return out; }
+    /* 同期饮食记录 */
+    var kcalBy = {}, days = 0;
+    (entries || []).forEach(function (e) {
+      if (e.type === 'food' && e.date && todayNum - dayNum(e.date) <= 27) kcalBy[e.date] = (kcalBy[e.date] || 0) + n(e.kcal);
+    });
+    var kd = Object.keys(kcalBy).filter(function (d) { return kcalBy[d] > 300; });
+    days = kd.length;
+    if (days < 10) { out.reason = '近 28 天饮食记录只有 ' + days + ' 天（至少 10 天），否则反推不准'; return out; }
+    var intake = kd.reduce(function (a, d) { return a + kcalBy[d]; }, 0) / days;
+    /* 平滑体重趋势（复用 Holt） */
+    var levels = holt(win.map(function (p) { return p.kg; }));
+    var base = dayNum(win[0].date);
+    var series = win.map(function (p, i) { return { x: dayNum(p.date) - base, y: levels[i] }; });
+    var o = ols(series);
+    var perDay = o.slope;                       /* kg/天 */
+    var span = dayNum(win[win.length - 1].date) - base;
+    if (span < 14) { out.reason = '体重记录跨度不足 14 天'; return out; }
+    /* 实际消耗：摄入 − 体重变化×7700/天 */
+    var tdee = intake - perDay * 7700;
+    out.ok = true;
+    out.intake = Math.round(intake);
+    out.perWeek = r1(7 * perDay);
+    out.tdee = Math.round(tdee / 10) * 10;
+    out.days = days;
+    out.span = span;
+    out.conf = days >= 21 ? '较高' : (days >= 14 ? '中等' : '偏低');
+    out.reason = '按近 ' + span + ' 天、' + days + ' 天饮食记录反推：实际消耗约 ' + out.tdee + ' 千卡/天（置信度' + out.conf + '）';
+    return out;
+  }
+
   global.HDForecast = {
     holt: holt, ols: ols,
-    weight: forecastWeight, strength: forecastStrength,
+    weight: forecastWeight, strength: forecastStrength, adaptiveTdee: adaptiveTdee,
     hrZones: hrZones, kcalFromMet: kcalFromMet, addDays: addDays
   };
 })(window);
