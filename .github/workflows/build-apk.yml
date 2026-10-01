@@ -93,8 +93,15 @@ jobs:
           EOF
           cat twa-manifest.json
 
+      - name: 配置 Bubblewrap（写死 JDK/SDK 路径，避免交互提问）
+        run: |
+          mkdir -p "$HOME/.bubblewrap"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          printf '{"jdkPath":"%s","androidSdkPath":"%s"}' "$JAVA_HOME" "$SDK" > "$HOME/.bubblewrap/config.json"
+          cat "$HOME/.bubblewrap/config.json"
+
       - name: 编译 APK / AAB
-        run: bubblewrap build --skipPwaValidation
+        run: yes n | bubblewrap build --skipPwaValidation
 
       - name: 产物清单
         run: |
