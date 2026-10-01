@@ -608,6 +608,18 @@
       '<div><small>记录点</small><b>' + fc.pts + '</b><span>次，近 28 天用 ' + (fc.usedPoints || 0) + ' 个</span></div>' +
       '<div><small>波动（残差）</small><b>' + (fc.residual || '—') + '</b><span>kg</span></div>' +
       '</div>';
+    /* 自适应 TDEE：用你自己的体重趋势反推实际消耗 */
+    var at = F.adaptiveTdee(pts, host.db.entries, host.today ? host.today() : host.date());
+    if (at.ok) {
+      var formulaTdee = n(host.db.profile && host.db.profile.tdee) || 0;
+      html += '<div class="result" style="margin-top:12px"><b>实际消耗约 ' + at.tdee + ' 千卡/天</b>' +
+        '（置信度' + at.conf + '，基于近 ' + at.span + ' 天体重趋势 + ' + at.days + ' 天饮食记录）<br>' +
+        '<span class="hint">平均摄入 ' + at.intake + ' 千卡，体重 ' + (at.perWeek > 0 ? '+' : '') + at.perWeek + ' kg/周 → 反推消耗 = 摄入 − 体重变化×7700÷天数。' +
+        (formulaTdee > 0 && Math.abs(formulaTdee - at.tdee) > 150 ? '与公式估算的 ' + formulaTdee + ' 千卡相差 ' + Math.abs(Math.round(formulaTdee - at.tdee)) + '，<b>以实测为准</b>。' : '') +
+        '<br>静态公式（缺口×7700）通常会高估减重速度约一倍，所以这里改用你自己的数据反推。</span></div>';
+    } else if (at.reason) {
+      html += '<div class="hint" style="margin-top:10px">自适应消耗还无法计算：' + esc(at.reason) + '</div>';
+    }
     html += '<div class="' + (fc.ok ? 'result' : 'hint') + '" style="margin-top:12px">' +
       (fc.ok ? '<b>' + esc(fc.reason) + '</b>' : esc(fc.reason || '数据还不足')) + '</div>';
     if (fc.warn) html += '<div class="hint trErr" style="margin-top:6px">' + esc(fc.warn) + '</div>';
