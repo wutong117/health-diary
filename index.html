@@ -47,8 +47,20 @@
 
   <div id="daily">
     <div id="xHome"></div>
+
+    <section class="panel">
+          <div class="row">
+            <h2>饮食</h2>
+            <span>
+              <button class="primary mini" id="addFromDb">+ 食物库</button>
+              <button class="mini" id="addManual">+ 手动录入</button>
+            </span>
+          </div>
+          <div id="foodList"></div>
+        </section>
+
     <div id="xAttr"></div>
-    <div id="xWeekly"></div>
+    
     <div id="todayBar" class="todayBar"></div>
     <div class="stats">
       <div class="stat">
@@ -79,6 +91,45 @@
       </div>
     </div>
 
+    
+
+    
+
+    
+
+    <div class="grid">
+      <div>
+        
+        <details class="panel quickRow">
+      <summary><b>饮水</b><span class="hint" id="qWater"></span></summary>
+      <div class="row" style="margin-top:10px"><button class="mini" data-add="water">+ 记录</button></div>
+      <div class="quick">
+            <button data-quick="200">+ 200 毫升</button>
+            <button data-quick="300">+ 300 毫升</button>
+            <button data-quick="500">+ 500 毫升</button>
+          </div>
+          <div id="waterList"></div>
+    </details>
+      </div>
+      <div>
+        <details class="panel quickRow">
+      <summary><b>体重</b><span class="hint" id="qWeight"></span></summary>
+      <div class="row" style="margin-top:10px"><button class="mini" data-add="weight">+ 记录</button></div>
+      <div id="weightList"></div>
+    </details>
+        <details class="panel quickRow">
+      <summary><b>休息与睡眠</b><span class="hint" id="qRest"></span></summary>
+      <div class="row" style="margin-top:10px"><button class="mini" data-add="rest">+ 记录</button></div>
+      <div id="restList"></div>
+    </details>
+      </div>
+    </div>
+  </div>
+
+  <div id="planTab" class="hide">
+
+    <!-- 以下为「设置」，从记录页迁来：记录页只留记录 -->
+    <details class="panel" name="hdSettings"><summary style="cursor:pointer"><b>营养素分配</b><span class="hint" style="margin-left:8px">点开修改</span></summary>
     <section class="panel">
       <div class="row"><h2>营养素分配（实际值与目标值都可直接修改）</h2><span class="hint" id="macroSum"></span></div>
       <div id="macroRows"></div>
@@ -86,7 +137,8 @@
       热量目标 <b id="mKcalTip">0</b> 千卡；三大营养素供能比建议：碳水 50%–65%、蛋白质 10%–20%、脂肪 20%–30%（《中国居民膳食营养素参考摄入量（2023版）》）。<br>
       <span id="mProteinKg"></span></p>
     </section>
-
+    </details>
+    <details class="panel" name="hdSettings"><summary style="cursor:pointer"><b>每日目标</b><span class="hint" style="margin-left:8px">点开修改</span></summary>
     <section class="panel" id="goalPanel">
       <div class="row"><h2>每日目标（可直接修改）</h2><button class="mini ghost" id="resetGoals">恢复默认</button></div>
       <div class="editLine">
@@ -107,7 +159,8 @@
       <div class="quick" id="presetRow"></div>
       <p class="hint">比例与克数双向联动：改百分比会重算克数，改克数会回算百分比（按每克碳水/蛋白质 4 千卡、脂肪 9 千卡换算）。所有改动即时保存。</p>
     </section>
-
+    </details>
+    <details class="panel" name="hdSettings"><summary style="cursor:pointer"><b>基础代谢计算</b><span class="hint" style="margin-left:8px">点开修改</span></summary>
     <section class="panel">
       <div class="row"><h2>基础代谢与每日消耗估算</h2><span class="hint">填数值 → 点计算</span></div>
       <div class="editLine">
@@ -123,43 +176,8 @@
       <div id="bmrResult" class="result">填入身体数据后点「计算」，即可得到基础代谢率（BMR）与每日总消耗（TDEE）。</div>
       <p class="hint" id="bmrHint"></p>
     </section>
+    </details>
 
-    <div class="grid">
-      <div>
-        <section class="panel">
-          <div class="row">
-            <h2>饮食</h2>
-            <span>
-              <button class="primary mini" id="addFromDb">+ 食物库</button>
-              <button class="mini" id="addManual">+ 手动录入</button>
-            </span>
-          </div>
-          <div id="foodList"></div>
-        </section>
-        <section class="panel">
-          <div class="row"><h2>饮水</h2><button class="mini" data-add="water">+ 自定义</button></div>
-          <div class="quick">
-            <button data-quick="200">+ 200 毫升</button>
-            <button data-quick="300">+ 300 毫升</button>
-            <button data-quick="500">+ 500 毫升</button>
-          </div>
-          <div id="waterList"></div>
-        </section>
-      </div>
-      <div>
-        <section class="panel">
-          <div class="row"><h2>体重</h2><button class="mini" data-add="weight">+ 记录</button></div>
-          <div id="weightList"></div>
-        </section>
-        <section class="panel">
-          <div class="row"><h2>休息与睡眠</h2><button class="mini" data-add="rest">+ 记录</button></div>
-          <div id="restList"></div>
-        </section>
-      </div>
-    </div>
-  </div>
-
-  <div id="planTab" class="hide">
     <section class="panel">
       <div class="row"><h2>饮食方法库</h2><span class="hint" id="planCurrent"></span></div>
       <div class="groupFilter" id="planFilter"></div>
@@ -258,6 +276,7 @@
 
   
   <div id="weightTab" class="hide">
+    <div id="xWeekly"></div>
     <section class="panel">
       <div class="row">
         <h2>体重趋势</h2>
