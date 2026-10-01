@@ -208,13 +208,16 @@
           }).filter(Boolean);
           return {
             uid: String(e.uid || ''), exId: e.exId, mode: e.mode === 'cardio' ? 'cardio' : 'strength',
-            planned: e.planned || null, noProg: !!e.noProg, note: String(e.note || ''), sets: sets
+            planned: e.planned || null, noProg: !!e.noProg, note: String(e.note || ''), sets: sets,
+            restTarget: n(e.restTarget) > 0 ? n(e.restTarget) : 0,
+            rests: (Array.isArray(e.rests) ? e.rests : []).filter(function (x) { return n(x) > 0 && n(x) < 1800; }).map(function (x) { return Math.round(n(x)); }).slice(-30)
           };
         }).filter(Boolean);
         if (!entries.length) return;
         out.sessions.push({
           id: id, date: s.date, routineId: s.routineId || '', dayId: s.dayId || '',
           dayName: String(s.dayName || ''), start: s.start || '', end: s.end || '',
+          startTs: n(s.startTs), endTs: n(s.endTs),
           feeling: n(s.feeling), note: String(s.note || ''), entries: entries
         });
       });
@@ -341,6 +344,58 @@
     });
   }
 
+  /* ===================== 计时 ===================== */
+  /** 按次数区间推断合理的组间休息（秒）：力量留足、增肌适中、耐力短一些 */
+  function defaultRest(item, exId) {
+    var ex = EX_BY_ID[exId] || {};
+    var small = ['手臂', '肩', '核心'].indexOf(ex.cat) >= 0;
+    var big = ['腿', '背', '臀'].indexOf(ex.cat) >= 0;
+    var r = n(item.repsMax) || 10;
+    var base;
+    if (r <= 5) base = 210;          /* 最大力量：3–4 分钟 */
+    else if (r <= 8) base = 150;     /* 力量偏增肌 */
+    else if (r <= 12) base = 100;    /* 增肌：1.5–2 分钟 */
+    else base = 60;                  /* 耐力/泵感：1 分钟 */
+    if (small) base = Math.min(base, 90);
+    if (big && r <= 5) base = 240;   /* 大重量复合动作需要更久 */
+    return base;
+  }
+  /** 单组用时估算（秒）：向心 1 + 离心 2 + 组内停顿 ≈ 次数 × 3 + 5 */
+  function setSeconds(item) {
+    var r = n(item.repsMax) || 10;
+    return Math.round(r * 3 + 5);
+  }
+  /** 本次训练的密度指标 */
+  function densityOf(session) {
+    if (!session) return null;
+    var est = 0, sets = 0;
+    session.entries.forEach(function (e) {
+      if (e.mode === 'cardio') return;
+      var done = e.sets.filter(function (x) { return x.done; });
+      sets += done.length;
+      est += done.length * setSeconds({ repsMax: (e.planned && e.planned.repsMax) || 10 });
+    });
+    var rests = [];
+    var targets = [];
+    session.entries.forEach(function (e) {
+      if (e.mode !== 'cardio' && n(e.restTarget) > 0) targets.push(n(e.restTarget));
+      (e.rests || []).forEach(function (r) { if (r > 0) rests.push(r); });
+    });
+    rests.sort(function (a, b) { return a - b; });
+    var med = rests.length ? (rests.length % 2 ? rests[(rests.length - 1) / 2] : Math.round((rests[rests.length / 2 - 1] + rests[rests.length / 2]) / 2)) : 0;
+    /* 建议休息取本次各动作休息目标的中位数 */
+    targets.sort(function (a, b) { return a - b; });
+    var rec = targets.length ? (targets.length % 2 ? targets[(targets.length - 1) / 2] : Math.round((targets[targets.length / 2 - 1] + targets[targets.length / 2]) / 2)) : 0;
+    var over = rec > 0 ? rests.filter(function (r) { return r > rec * 1.5; }).length : 0;
+    var durMin = session.startTs && session.endTs ? Math.max(1, Math.round((session.endTs - session.startTs) / 60000)) : 0;
+    var vol = volumeOf(session);
+    return {
+      sets: sets, estWorkSec: est, rests: rests.length, restMedian: med, restTarget: rec, overRest: over,
+      durationMin: durMin, workRatio: durMin > 0 ? Math.min(1, r1(est / (durMin * 60))) : 0,
+      volumePerHour: durMin > 0 ? Math.round(vol / (durMin / 60)) : 0, volume: vol
+    };
+  }
+
   /* ===================== 会话 ===================== */
   function activeRoutine() {
     return S.routines.filter(function (r) { return r.id === S.activeId; })[0] || S.routines[0];
@@ -365,14 +420,18 @@
     d.items.forEach(function (i) { sg[i.uid] = suggest(i); });
     var s = {
       id: 's_' + date, date: date, routineId: r.id, dayId: d.id, dayName: d.name,
-      start: new Date().toTimeString().slice(0, 5), end: '', feeling: 0, note: '',
+      start: new Date().toTimeString().slice(0, 5), end: '', startTs: Date.now(), endTs: 0,
+      feeling: 0, note: '',
       entries: d.items.map(function (i) {
         var sug = sg[i.uid];
+        /* 休息时长：计划里没设（0）就按次数区间自动给一个合理值 */
+        var rest = i.mode === 'cardio' ? 0 : (n(i.restSec) > 0 ? n(i.restSec) : defaultRest(i, i.exId));
+        if (i.mode !== 'cardio' && !(n(i.restSec) > 0)) i.restSec = rest;
         var entry = {
-          uid: i.uid, exId: i.exId, mode: i.mode, note: '',
+          uid: i.uid, exId: i.exId, mode: i.mode, note: '', rests: [], restTarget: rest,
           planned: i.mode === 'cardio'
             ? { mode: 'cardio', targetMin: sug.targetMin }
-            : { sets: i.sets, repsMin: i.repsMin, repsMax: i.repsMax, weight: sug.weight, reason: sug.reason },
+            : { sets: i.sets, repsMin: i.repsMin, repsMax: i.repsMax, weight: sug.weight, restSec: rest, reason: sug.reason },
           noProg: false, sets: []
         };
         if (i.mode === 'cardio') {
@@ -391,6 +450,8 @@
     var s = sessionOn(date);
     if (!s) return;
     s.end = new Date().toTimeString().slice(0, 5);
+    s.endTs = Date.now();
+    if (!s.startTs) s.startTs = s.endTs - 3600000;
     s.entries.forEach(function (e) { e.sets = e.sets.filter(function (x) { return x.done || x.w || x.r || x.min; }); });
     applyProgression(s);
   }
@@ -537,7 +598,7 @@
     if (!s) { panel.classList.add('hide'); return; }
     panel.classList.remove('hide');
     $('#trSessionTitle').textContent = s.date + ' · ' + s.dayName + (viewing ? '（历史记录）' : '');
-    $('#trSessionInfo').textContent = '训练量 ' + volumeOf(s) + ' kg · 有氧 ' + cardioMinOf(s) + ' 分钟 · ' + (s.end ? ('结束于 ' + s.end) : ('开始于 ' + s.start));
+    $('#trSessionInfo').textContent = '训练量 ' + volumeOf(s) + ' kg · 有氧 ' + cardioMinOf(s) + ' 分钟 · ' + (s.end ? ('用时 ' + (densityOf(s).durationMin || '—') + ' 分钟') : ('开始于 ' + s.start));
 
     var html = '';
     s.entries.forEach(function (e, idx) {
@@ -693,6 +754,30 @@
       '<div><small>本周有氧</small><b>' + thisW.cardio + ' 分</b><span>目标 ' + goal + ' 分（WHO 150–300）</span></div>' +
       '<div><small>累计训练</small><b>' + S.sessions.length + ' 次</b><span>共 ' + S.sessions.reduce(function (a, s) { return a + volumeOf(s); }, 0) + ' kg</span></div>' +
       '</div>' +
+      /* 训练密度：把计时变成效率指标 */
+      (function () {
+        var recent = S.sessions.filter(function (x) { return x.endTs && x.startTs; }).slice(-10).map(densityOf).filter(Boolean);
+        if (!recent.length) return '';
+        var medDur = Math.round(recent.reduce(function (a, x) { return a + x.durationMin; }, 0) / recent.length);
+        var medRatio = Math.round(recent.reduce(function (a, x) { return a + x.workRatio; }, 0) / recent.length * 100);
+        var rests = [];
+        recent.forEach(function (x) { if (x.restMedian) rests.push(x.restMedian); });
+        var medRest = rests.length ? Math.round(rests.reduce(function (a, b) { return a + b; }, 0) / rests.length) : 0;
+        var over = recent.reduce(function (a, x) { return a + x.overRest; }, 0);
+        var vph = Math.round(recent.reduce(function (a, x) { return a + x.volumePerHour; }, 0) / recent.length);
+        return '<div class="row" style="margin-top:16px"><b>训练密度（最近 ' + recent.length + ' 次）</b>' +
+          '<span class="hint">有效训练时间 ÷ 总时长</span></div>' +
+          '<div class="stats4">' +
+          '<div><small>平均时长</small><b>' + medDur + '</b><span>分钟 / 次</span></div>' +
+          '<div><small>有效训练占比</small><b>' + medRatio + '%</b><span>其余是组间休息</span></div>' +
+          '<div><small>组间休息中位数</small><b>' + (medRest || '—') + '</b><span>秒</span></div>' +
+          '<div><small>训练密度</small><b>' + vph + '</b><span>kg 容量 / 小时</span></div>' +
+          '</div>' +
+          '<div class="hint" style="margin-top:8px">' +
+          (over > 0 ? '有 <b>' + over + '</b> 次休息超过建议值的 1.5 倍 —— 不一定要压缩，但如果你觉得"练得久又累"，先看这个数。' : '组间休息基本都在建议范围内。') +
+          (medRatio > 0 && medRatio < 35 ? ' 有效训练占比偏低（' + medRatio + '%），如果是聊天或刷手机拉长的，把休息计时用起来。' : '') +
+          '</div>';
+      })() +
       '<div class="row" style="margin-top:16px"><b>近 8 周训练量</b><span class="hint">重量 × 次数（不含热身与有氧）</span></div>' +
       barChart(wk.map(function (w) { return { k: w.start.slice(5), v: w.volume }; }), '') +
       '<div class="row" style="margin-top:16px"><b>近 28 天各肌群组数</b><span class="hint">按完成组数统计</span></div>' +
@@ -735,17 +820,34 @@
   }
 
   /* ===================== 事件 ===================== */
+  var titleFlashT = null;
+  function flashTitle(msg) {
+    var orig = document.title;
+    var on = false;
+    clearInterval(titleFlashT);
+    titleFlashT = setInterval(function () {
+      document.title = on ? orig : msg;
+      on = !on;
+    }, 700);
+    setTimeout(function () { clearInterval(titleFlashT); document.title = orig; }, 6000);
+  }
   function restTimer(sec) {
     var box = $('#trTimer');
     if (!box) { box = document.createElement('div'); box.id = 'trTimer'; box.className = 'trTimer'; document.body.appendChild(box); }
-    var left = n(sec);
+    var total = n(sec) || 120, left = total;
     box.classList.remove('hide');
     clearInterval(restTimer._t);
-    function paint() { box.textContent = '休息 ' + Math.floor(left / 60) + ':' + pad(Math.round(left % 60)) + ' · 点这里关闭'; }
+    function paint() { box.textContent = '休息 ' + Math.floor(left / 60) + ':' + pad(Math.round(left % 60)) + ' / ' + Math.round(total / 60) + ' 分钟 · 点这里关闭'; }
     paint();
     restTimer._t = setInterval(function () {
       left -= 1; paint();
-      if (left <= 0) { clearInterval(restTimer._t); box.textContent = '休息结束，开始下一组'; setTimeout(function () { box.classList.add('hide'); }, 4000); }
+      if (left <= 0) {
+        clearInterval(restTimer._t);
+        box.textContent = '休息结束，开始下一组';
+        try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) { }
+        flashTitle('⏱ 休息结束');
+        setTimeout(function () { box.classList.add('hide'); }, 5000);
+      }
     }, 1000);
     box.onclick = function () { clearInterval(restTimer._t); box.classList.add('hide'); };
   }
@@ -757,7 +859,25 @@
       if (!t) return;
       var d = t.dataset;
       if (d.trStart) { var d0 = activeRoutine().days.filter(function (x) { return x.id === d.trStart; })[0]; if (d0) { startSession(d0.id); persist(); } }
-      else if (d.trSet) { var p = d.trSet.split(':'), s = sessionOn(curDate()); if (s && s.entries[+p[0]] && s.entries[+p[0]].sets[+p[1]]) { s.entries[+p[0]].sets[+p[1]].done = !s.entries[+p[0]].sets[+p[1]].done; if (s.entries[+p[0]].sets[+p[1]].done && s.entries[+p[0]].mode !== 'cardio') restTimer(s.entries[+p[0]].planned && s.entries[+p[0]].planned.restSec || 120); persist(); } }
+      else if (d.trSet) {
+        var p = d.trSet.split(':'), s = sessionOn(curDate());
+        var ent = s && s.entries[+p[0]];
+        if (ent && ent.sets[+p[1]]) {
+          var st = ent.sets[+p[1]];
+          st.done = !st.done;
+          if (st.done && ent.mode !== 'cardio') {
+            /* 记录两次完成之间的实际休息时长（用于训练密度分析） */
+            var now = Date.now();
+            if (s.lastDoneTs) {
+              var gap = Math.round((now - s.lastDoneTs) / 1000);
+              if (gap > 0 && gap < 1800) { ent.rests = ent.rests || []; ent.rests.push(gap); }
+            }
+            s.lastDoneTs = now;
+            restTimer(ent.restTarget || (ent.planned && ent.planned.restSec) || 120);
+          }
+          persist();
+        }
+      }
       else if (d.trAddset) { var s2 = sessionOn(curDate()); if (s2 && s2.entries[+d.trAddset]) { var e2 = s2.entries[+d.trAddset]; var last = e2.sets[e2.sets.length - 1] || {}; e2.sets.push(e2.mode === 'cardio' ? { min: last.min || 20, done: false } : { w: last.w || 0, r: last.r || 8, done: false }); persist(); } }
       else if (d.trDropLast) { var s3 = sessionOn(curDate()); if (s3 && s3.entries[+d.trDropLast] && s3.entries[+d.trDropLast].sets.length > 1) { s3.entries[+d.trDropLast].sets.pop(); persist(); } }
       else if (d.trTimer) { restTimer(n(d.trTimer)); }
@@ -817,6 +937,7 @@
     /* 供测试与外部调用 */
     suggest: function (item) { return suggest(item); },
     e1rm: e1rm, volumeOf: volumeOf, cardioMinOf: cardioMinOf, weeklyStats: weeklyStats,
+    defaultRest: defaultRest, setSeconds: setSeconds, densityOf: densityOf,
     muscleVolume: muscleVolume, e1rmSeries: e1rmSeries, prTable: prTable, adherence: adherence,
     lastPerf: lastPerf, startSession: startSession, finishSession: finishSession,
     activeRoutine: function () { return activeRoutine(); }, todayDay: todayDay, sessionOn: sessionOn,
